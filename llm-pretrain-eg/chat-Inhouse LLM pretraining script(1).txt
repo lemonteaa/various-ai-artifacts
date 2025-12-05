@@ -1,0 +1,892 @@
+# AI Chat Transcript
+
+Model used: Qwen 3 Coder
+
+Date: Around end of July, 2025.
+
+Remarks: Quite surprised that the AI generated script basically work on first try (almost? I forgot, but at any rate only very minor change is needed)
+
+
+### USER
+What is your knowledge cutoff date?
+
+### ASSISTANT
+My knowledge cutoff date is October 2024. If you have any questions, I will do my best to provide answers based on the information available up to that date.
+
+### USER
+Based on knowledge you've remembered, can you write a minimal script to do pre-training run of LLM from scratch? Some consideration and context:
+- Use the pytorch + huggingface ecosystem liberally
+- Infra is single H100
+- Target small model for iteration/academic research etc (say GPT2 small 125M scale, though I would prefer more modern LLM architecture - see attached file below)
+- Use modern dataset (eg fineweb)
+- Prioritize simplicity of operation and code readability
+
+Additional file:
+A modern 0.3B architecture recently implemented in huggingface transformer:
+{
+  "architectures": [
+    "Ernie4_5_ForCausalLM"
+  ],
+  "bos_token_id": 1,
+  "eos_token_id": 2,
+  "head_dim": 128,
+  "hidden_act": "silu",
+  "hidden_size": 1024,
+  "initializer_range": 0.02,
+  "intermediate_size": 3072,
+  "max_position_embeddings": 131072,
+  "model_type": "ernie4_5",
+  "num_attention_heads": 16,
+  "num_hidden_layers": 18,
+  "num_key_value_heads": 2,
+  "pad_token_id": 0,
+  "rms_norm_eps": 1e-05,
+  "rope_scaling": null,
+  "rope_theta": 500000.0,
+  "torch_dtype": "bfloat16",
+  "transformers_version": "4.54.0.dev0",
+  "use_bias": false,
+  "use_cache": true,
+  "vocab_size": 103424
+}
+
+Fineweb info:
+
+How to download and use 🍷 FineWeb
+
+You can load the full dataset or a specific crawl/dump (see table below). Dumps have the format CC-MAIN-(year)-(week number).
+(Smaller) sample versions
+
+Along with config default (all the data), and the configs for each individual dump, you can also download the following configs:
+
+    sample-350BT: a subset randomly sampled from the whole dataset of around 350B gpt2 tokens (388GB)
+    sample-100BT: a subset randomly sampled from the whole dataset of around 100B gpt2 tokens (277.4GB)
+    sample-10BT: a subset randomly sampled from the whole dataset of around 10B gpt2 tokens (27.6GB)
+
+sample-10B was sampled from sample-100B which in turn was sampled from sample-350BT.
+Using 🏭 datatrove
+
+from datatrove.pipeline.readers import ParquetReader
+
+# limit determines how many documents will be streamed (remove for all)
+# to fetch a specific dump: hf://datasets/HuggingFaceFW/fineweb/data/CC-MAIN-2024-10
+# replace "data" with "sample/100BT" to use the 100BT sample
+data_reader = ParquetReader("hf://datasets/HuggingFaceFW/fineweb/data", limit=1000) 
+for document in data_reader():
+    # do something with document
+    print(document)
+
+###############################    
+# OR for a processing pipeline:
+###############################
+
+from datatrove.executor import LocalPipelineExecutor
+from datatrove.pipeline.readers import ParquetReader
+from datatrove.pipeline.filters import LambdaFilter
+from datatrove.pipeline.writers import JsonlWriter
+
+pipeline_exec = LocalPipelineExecutor(
+    pipeline=[
+        # replace "data/CC-MAIN-2024-10" with "sample/100BT" to use the 100BT sample
+        ParquetReader("hf://datasets/HuggingFaceFW/fineweb/data/CC-MAIN-2024-10", limit=1000),
+        LambdaFilter(lambda doc: "hugging" in doc.text),
+        JsonlWriter("some-output-path")
+    ],
+    tasks=10
+)
+pipeline_exec.run()
+
+Using huggingface_hub
+
+from huggingface_hub import snapshot_download
+folder = snapshot_download(
+                "HuggingFaceFW/fineweb", 
+                repo_type="dataset",
+                local_dir="./fineweb/",
+                # replace "data/CC-MAIN-2023-50/*" with "sample/100BT/*" to use the 100BT sample
+                allow_patterns="data/CC-MAIN-2023-50/*")
+
+For faster downloads, make sure to install pip install huggingface_hub[hf_transfer] and set the environment variable HF_HUB_ENABLE_HF_TRANSFER=1.
+Using datasets
+
+from datasets import load_dataset
+# use name="sample-10BT" to use the 10BT sample
+fw = load_dataset("HuggingFaceFW/fineweb", name="CC-MAIN-2024-10", split="train", streaming=True)
+
+Dataset card for 🍷 FineWeb
+Dataset Summary
+
+This dataset was created by processing 96 CommonCrawl dumps comprising web data crawled from the summer of 2013 to April of 2024. 🍷 FineWeb includes a variety of domains and topics in English and is primarily intended to be used as a research artifact on public data in the context of pretraining dataset for large language models. The CommonCrawl data was carefully processed, filtered and deduplicated with the 🏭 datatrove library, resulting in the largest publicly available clean LLM pretraining dataset, counting around 15 trillion tokens (gpt2 tokenizer).
+Dataset Structure
+Data Instances
+
+The following is an example sample from the dataset. It is part of the CC-MAIN-2021-43 and was crawled on 2021-10-15T21:20:12Z.
+
+{
+   "text": "This is basically a peanut flavoured cream thickened with egg yolks and then set into a ramekin on top of some jam. Tony, one of the Wedgwood chefs, suggested sprinkling on some toasted crushed peanuts at the end to create extra crunch, which I thought was a great idea. The result is excellent.",
+   "id": "<urn:uuid:e5a3e79a-13d4-4147-a26e-167536fcac5d>",
+   "dump": "CC-MAIN-2021-43",
+   "url": "<http://allrecipes.co.uk/recipe/24758/peanut-butter-and-jam-creme-brulee.aspx?o_is=SimilarRecipes&o_ln=SimRecipes_Photo_7>",
+   "date": "2021-10-15T21:20:12Z",
+   "file_path": "s3://commoncrawl/crawl-data/CC-MAIN-2021-43/segments/1634323583083.92/warc/CC-MAIN-20211015192439-20211015222439-00600.warc.gz",
+   "language": "en",
+   "language_score": 0.948729,
+   "token_count": 69
+}
+
+Data Fields
+
+    text (string): the main text content
+    id (string): original unique identifier for this sample from CommonCrawl
+    dump (string): the CommonCrawl dump this sample was a part of
+    url (string): url to the original page where text was present
+    date (string): crawl date (from CommonCrawl)
+    file_path (string): s3 path for the individual CommonCrawl warc file containing this sample
+    language (string): en for all the samples in this dataset
+    language_score (float): language prediction score (0.01.0) as reported by the fastText language classifier
+    token_count (int): number of tokens when applying the gpt2 tokenizer to this sample
+
+Data Splits
+
+The default subset includes the entire dataset. If you would like to only use the data from a particular CommonCrawl dump, you can use the dump name as a subset. You will find the full list of available dumps on the table above. From experiments we have run, not all dumps give the same performance. For relatively small trainings (<550 billion tokens) we recommend using the recent CC-MAIN-2023-50, CC-MAIN-2024-10 and CC-MAIN-2024-18. 
+
+### ASSISTANT
+Here's a minimal, readable script for pre-training a small LLM from scratch using the PyTorch + Hugging Face ecosystem:
+
+```python
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
+from transformers import (
+    AutoTokenizer, 
+    AutoConfig,
+    AutoModelForCausalLM,
+    get_linear_schedule_with_warmup,
+    DataCollatorForLanguageModeling
+)
+from datasets import load_dataset
+import math
+from tqdm import tqdm
+import os
+
+# Configuration
+MODEL_CONFIG = {
+    "architectures": ["Ernie4_5_ForCausalLM"],
+    "bos_token_id": 1,
+    "eos_token_id": 2,
+    "head_dim": 128,
+    "hidden_act": "silu",
+    "hidden_size": 1024,
+    "initializer_range": 0.02,
+    "intermediate_size": 3072,
+    "max_position_embeddings": 131072,
+    "model_type": "ernie4_5",
+    "num_attention_heads": 16,
+    "num_hidden_layers": 18,
+    "num_key_value_heads": 2,
+    "pad_token_id": 0,
+    "rms_norm_eps": 1e-05,
+    "rope_scaling": None,
+    "rope_theta": 500000.0,
+    "torch_dtype": "bfloat16",
+    "transformers_version": "4.54.0.dev0",
+    "use_bias": False,
+    "use_cache": True,
+    "vocab_size": 103424
+}
+
+TRAINING_CONFIG = {
+    "dataset_name": "HuggingFaceFW/fineweb",
+    "dataset_config": "sample-10BT",  # Small sample for iteration
+    "tokenizer_name": "meta-llama/Llama-2-7b-hf",  # Compatible tokenizer
+    "sequence_length": 2048,
+    "batch_size": 4,  # Adjust based on memory
+    "learning_rate": 3e-4,
+    "weight_decay": 0.1,
+    "warmup_steps": 1000,
+    "max_steps": 10000,
+    "save_steps": 1000,
+    "log_steps": 100,
+    "output_dir": "./checkpoints",
+    "gradient_accumulation_steps": 2,
+    "bf16": True,  # Use bfloat16 for H100
+}
+
+def setup_model():
+    """Initialize the model with specified configuration"""
+    config = AutoConfig.for_model(**MODEL_CONFIG)
+    model = AutoModelForCausalLM.from_config(config)
+    
+    # Initialize weights (simplified)
+    def init_weights(module):
+        if isinstance(module, (nn.Linear, nn.Embedding)):
+            module.weight.data.normal_(mean=0.0, std=MODEL_CONFIG["initializer_range"])
+            if isinstance(module, nn.Linear) and module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, nn.LayerNorm):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
+    
+    model.apply(init_weights)
+    return model
+
+def setup_tokenizer():
+    """Setup tokenizer"""
+    tokenizer = AutoTokenizer.from_pretrained(
+        TRAINING_CONFIG["tokenizer_name"],
+        use_fast=True
+    )
+    tokenizer.pad_token = tokenizer.eos_token
+    return tokenizer
+
+def setup_dataset(tokenizer):
+    """Setup streaming dataset with preprocessing"""
+    dataset = load_dataset(
+        TRAINING_CONFIG["dataset_name"],
+        name=TRAINING_CONFIG["dataset_config"],
+        split="train",
+        streaming=True
+    )
+    
+    def tokenize_function(example):
+        return tokenizer(
+            example["text"],
+            truncation=True,
+            padding=False,
+            max_length=TRAINING_CONFIG["sequence_length"]
+        )
+    
+    # Tokenize and group texts
+    tokenized_dataset = dataset.map(
+        tokenize_function,
+        batched=True,
+        remove_columns=dataset.column_names
+    )
+    
+    def group_texts(examples):
+        # Concatenate all texts
+        concatenated_examples = {k: sum(examples[k], []) for k in examples.keys()}
+        total_length = len(concatenated_examples[list(examples.keys())[0]])
+        
+        # We drop the small remainder
+        total_length = (total_length // TRAINING_CONFIG["sequence_length"]) * TRAINING_CONFIG["sequence_length"]
+        
+        # Split by chunks of max_seq_length
+        result = {
+            k: [t[i : i + TRAINING_CONFIG["sequence_length"]] 
+                for i in range(0, total_length, TRAINING_CONFIG["sequence_length"])]
+            for k, t in concatenated_examples.items()
+        }
+        return result
+    
+    grouped_dataset = tokenized_dataset.map(
+        group_texts,
+        batched=True
+    )
+    
+    return grouped_dataset
+
+def setup_dataloader(dataset):
+    """Create DataLoader with appropriate collator"""
+    data_collator = DataCollatorForLanguageModeling(
+        tokenizer=setup_tokenizer(),
+        mlm=False,
+    )
+    
+    dataloader = DataLoader(
+        dataset,
+        collate_fn=data_collator,
+        batch_size=TRAINING_CONFIG["batch_size"],
+        shuffle=False,
+    )
+    return dataloader
+
+def setup_optimizer(model):
+    """Setup AdamW optimizer with weight decay"""
+    no_decay = ["bias", "LayerNorm.weight"]
+    optimizer_grouped_parameters = [
+        {
+            "params": [p for n, p in model.named_parameters() 
+                      if not any(nd in n for nd in no_decay)],
+            "weight_decay": TRAINING_CONFIG["weight_decay"],
+        },
+        {
+            "params": [p for n, p in model.named_parameters() 
+                      if any(nd in n for nd in no_decay)],
+            "weight_decay": 0.0,
+        },
+    ]
+    optimizer = torch.optim.AdamW(
+        optimizer_grouped_parameters, 
+        lr=TRAINING_CONFIG["learning_rate"]
+    )
+    return optimizer
+
+def train():
+    """Main training loop"""
+    # Setup
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    tokenizer = setup_tokenizer()
+    model = setup_model().to(device)
+    
+    if TRAINING_CONFIG["bf16"]:
+        model = model.bfloat16()
+    
+    dataset = setup_dataset(tokenizer)
+    dataloader = setup_dataloader(dataset)
+    optimizer = setup_optimizer(model)
+    
+    # Scheduler
+    scheduler = get_linear_schedule_with_warmup(
+        optimizer,
+        num_warmup_steps=TRAINING_CONFIG["warmup_steps"],
+        num_training_steps=TRAINING_CONFIG["max_steps"]
+    )
+    
+    # Training loop
+    model.train()
+    accumulated_loss = 0
+    optimizer.zero_grad()
+    
+    data_iter = iter(dataloader)
+    
+    for step in tqdm(range(1, TRAINING_CONFIG["max_steps"] + 1), desc="Training"):
+        try:
+            batch = next(data_iter)
+        except StopIteration:
+            # Reinitialize iterator when dataset ends
+            data_iter = iter(dataloader)
+            batch = next(data_iter)
+        
+        # Move batch to device
+        batch = {k: v.to(device) for k, v in batch.items()}
+        
+        # Forward pass
+        outputs = model(**batch)
+        loss = outputs.loss / TRAINING_CONFIG["gradient_accumulation_steps"]
+        
+        # Backward pass
+        loss.backward()
+        
+        accumulated_loss += loss.item()
+        
+        # Gradient accumulation
+        if step % TRAINING_CONFIG["gradient_accumulation_steps"] == 0:
+            optimizer.step()
+            scheduler.step()
+            optimizer.zero_grad()
+        
+        # Logging
+        if step % TRAINING_CONFIG["log_steps"] == 0:
+            avg_loss = accumulated_loss / TRAINING_CONFIG["log_steps"]
+            print(f"Step {step}: Loss = {avg_loss:.4f}, LR = {scheduler.get_last_lr()[0]:.2e}")
+            accumulated_loss = 0
+        
+        # Save checkpoint
+        if step % TRAINING_CONFIG["save_steps"] == 0:
+            os.makedirs(TRAINING_CONFIG["output_dir"], exist_ok=True)
+            checkpoint_path = os.path.join(TRAINING_CONFIG["output_dir"], f"checkpoint-{step}")
+            model.save_pretrained(checkpoint_path)
+            tokenizer.save_pretrained(checkpoint_path)
+            print(f"Checkpoint saved at step {step}")
+
+if __name__ == "__main__":
+    train()
+```
+
+Key features of this implementation:
+
+1. **Modern Architecture**: Uses the provided ERNIE 4.5 configuration (0.3B parameters) with Grouped-Query Attention and RoPE embeddings.
+
+2. **Efficient Data Handling**:
+   - Streams FineWeb dataset (sample-10BT for quick iteration)
+   - Tokenizes on-the-fly with LLaMA tokenizer
+   - Groups texts into fixed-length sequences
+
+3. **Memory Optimization**:
+   - Gradient accumulation for larger effective batch sizes
+   - BFloat16 training for H100
+   - Streaming data loader to avoid memory overflow
+
+4. **Training Features**:
+   - AdamW optimizer with weight decay
+   - Linear warmup learning rate scheduler
+   - Checkpoint saving
+   - Progress tracking with tqdm
+
+5. **Single GPU Support**: Designed for a single H100 with appropriate batch sizing.
+
+To run this script:
+
+1. Install dependencies:
+```bash
+pip install torch transformers datasets accelerate tqdm huggingface_hub
+```
+
+2. Run the training:
+```bash
+python pretrain.py
+```
+
+Notes:
+- Adjust `batch_size` based on your H100 memory (start with 4)
+- The script uses LLaMA tokenizer since ERNIE tokenizer might not be publicly available
+- For faster downloads, install `huggingface_hub[hf_transfer]` and set `HF_HUB_ENABLE_HF_TRANSFER=1`
+- Training will save checkpoints every 1000 steps
+- Modify `max_steps` for shorter/longer training runs
+
+This implementation prioritizes readability and simplicity while maintaining good performance for research iteration.
+
+### USER
+Very good! Now, in my infra, I prefer to eager push model checkpoint to wandb's remote storage, minimizing reliance on the local filesystem. I also want to log training run metric. For now, I am using wandb. I also want to be able to resume training from a checkpoint. Can you modify the script you answered last round (which works)? You may reference the doc I attached (which contain snippet of up to date doc of wandb as of 2025 Aug), but also use your own knowledge.
+
+### ASSISTANT
+Okay, I'll modify the script to integrate Weights & Biases (W&B) for logging metrics, uploading checkpoints as artifacts, and enabling resumption from those artifacts.
+
+This updated script incorporates W&B for:
+
+1.  **Logging hyperparameters and metrics** (`loss`, `learning_rate`) during training.
+2.  **Uploading model checkpoints** as W&B Artifacts at specified intervals.
+3.  **Resuming training** from a W&B Artifact checkpoint specified by the user.
+
+```python
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
+from transformers import (
+    AutoTokenizer,
+    AutoConfig,
+    AutoModelForCausalLM,
+    get_linear_schedule_with_warmup,
+    DataCollatorForLanguageModeling
+)
+from datasets import load_dataset
+import math
+from tqdm import tqdm
+import os
+import argparse
+import tempfile
+import shutil
+
+# Import wandb
+import wandb
+
+# Configuration
+MODEL_CONFIG = {
+    "architectures": ["Ernie4_5_ForCausalLM"],
+    "bos_token_id": 1,
+    "eos_token_id": 2,
+    "head_dim": 128,
+    "hidden_act": "silu",
+    "hidden_size": 1024,
+    "initializer_range": 0.02,
+    "intermediate_size": 3072,
+    "max_position_embeddings": 131072,
+    "model_type": "ernie4_5",
+    "num_attention_heads": 16,
+    "num_hidden_layers": 18,
+    "num_key_value_heads": 2,
+    "pad_token_id": 0,
+    "rms_norm_eps": 1e-05,
+    "rope_scaling": None,
+    "rope_theta": 500000.0,
+    "torch_dtype": "bfloat16",
+    "transformers_version": "4.54.0.dev0",
+    "use_bias": False,
+    "use_cache": True,
+    "vocab_size": 103424
+}
+
+TRAINING_CONFIG = {
+    "dataset_name": "HuggingFaceFW/fineweb",
+    "dataset_config": "sample-10BT",  # Small sample for iteration
+    "tokenizer_name": "meta-llama/Llama-2-7b-hf",  # Compatible tokenizer
+    "sequence_length": 2048,
+    "batch_size": 4,  # Adjust based on memory
+    "learning_rate": 3e-4,
+    "weight_decay": 0.1,
+    "warmup_steps": 1000,
+    "max_steps": 10000,
+    "save_steps": 1000,
+    "log_steps": 100,
+    "output_dir": "./checkpoints", # Local temp dir for saving before upload
+    "gradient_accumulation_steps": 2,
+    "bf16": True,  # Use bfloat16 for H100
+    "wandb_project": "llm-pretraining", # W&B Project Name
+    "wandb_entity": None, # Set your W&B entity (team/username) if needed
+    "run_name": None, # Optional run name for W&B
+    "resume_from_artifact": None, # W&B Artifact path to resume from (e.g., "entity/project/checkpoint-name:v0")
+}
+
+def setup_model():
+    """Initialize the model with specified configuration"""
+    config = AutoConfig.for_model(**MODEL_CONFIG)
+    model = AutoModelForCausalLM.from_config(config)
+
+    # Initialize weights (simplified)
+    def init_weights(module):
+        if isinstance(module, (nn.Linear, nn.Embedding)):
+            module.weight.data.normal_(mean=0.0, std=MODEL_CONFIG["initializer_range"])
+            if isinstance(module, nn.Linear) and module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, nn.LayerNorm):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
+
+    model.apply(init_weights)
+    return model
+
+def setup_tokenizer():
+    """Setup tokenizer"""
+    tokenizer = AutoTokenizer.from_pretrained(
+        TRAINING_CONFIG["tokenizer_name"],
+        use_fast=True
+    )
+    # Ensure pad token is set for DataCollatorForLanguageModeling
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    return tokenizer
+
+def setup_dataset(tokenizer):
+    """Setup streaming dataset with preprocessing"""
+    dataset = load_dataset(
+        TRAINING_CONFIG["dataset_name"],
+        name=TRAINING_CONFIG["dataset_config"],
+        split="train",
+        streaming=True
+    )
+
+    def tokenize_function(example):
+        # Use padding=False for efficiency with group_texts
+        return tokenizer(
+            example["text"],
+            truncation=True,
+            padding=False,
+            max_length=TRAINING_CONFIG["sequence_length"]
+        )
+
+    # Tokenize and group texts
+    tokenized_dataset = dataset.map(
+        tokenize_function,
+        batched=True,
+        remove_columns=dataset.column_names
+    )
+
+    def group_texts(examples):
+        # Concatenate all texts
+        concatenated_examples = {k: sum(examples[k], []) for k in examples.keys()}
+        total_length = len(concatenated_examples[list(examples.keys())[0]])
+
+        # We drop the small remainder
+        total_length = (total_length // TRAINING_CONFIG["sequence_length"]) * TRAINING_CONFIG["sequence_length"]
+
+        # Split by chunks of max_seq_length
+        result = {
+            k: [t[i: i + TRAINING_CONFIG["sequence_length"]]
+                for i in range(0, total_length, TRAINING_CONFIG["sequence_length"])]
+            for k, t in concatenated_examples.items()
+        }
+        # Add labels for causal LM (shifted inputs)
+        result["labels"] = result["input_ids"].copy()
+        return result
+
+    grouped_dataset = tokenized_dataset.map(
+        group_texts,
+        batched=True
+    )
+
+    return grouped_dataset
+
+def setup_dataloader(dataset):
+    """Create DataLoader with appropriate collator"""
+    # Re-initialize tokenizer here to avoid pickling issues if needed later
+    tokenizer = setup_tokenizer()
+    data_collator = DataCollatorForLanguageModeling(
+        tokenizer=tokenizer,
+        mlm=False, # Causal LM
+    )
+
+    dataloader = DataLoader(
+        dataset,
+        collate_fn=data_collator,
+        batch_size=TRAINING_CONFIG["batch_size"],
+        shuffle=False, # Streaming dataset handles shuffling
+    )
+    return dataloader
+
+def setup_optimizer(model):
+    """Setup AdamW optimizer with weight decay"""
+    no_decay = ["bias", "LayerNorm.weight"]
+    optimizer_grouped_parameters = [
+        {
+            "params": [p for n, p in model.named_parameters()
+                      if not any(nd in n for nd in no_decay)],
+            "weight_decay": TRAINING_CONFIG["weight_decay"],
+        },
+        {
+            "params": [p for n, p in model.named_parameters()
+                      if any(nd in n for nd in no_decay)],
+            "weight_decay": 0.0,
+        },
+    ]
+    optimizer = torch.optim.AdamW(
+        optimizer_grouped_parameters,
+        lr=TRAINING_CONFIG["learning_rate"]
+    )
+    return optimizer
+
+def save_model_artifact(model, tokenizer, step, optimizer=None, scheduler=None):
+    """Save model checkpoint locally and upload as W&B artifact."""
+    os.makedirs(TRAINING_CONFIG["output_dir"], exist_ok=True)
+    temp_dir = tempfile.mkdtemp(dir=TRAINING_CONFIG["output_dir"])
+    checkpoint_path = os.path.join(temp_dir, f"checkpoint-{step}")
+
+    try:
+        # Save model, tokenizer, and training states
+        model.save_pretrained(checkpoint_path)
+        tokenizer.save_pretrained(checkpoint_path)
+        if optimizer:
+            torch.save(optimizer.state_dict(), os.path.join(checkpoint_path, "optimizer.pt"))
+        if scheduler:
+            torch.save(scheduler.state_dict(), os.path.join(checkpoint_path, "scheduler.pt"))
+        # Save training step
+        with open(os.path.join(checkpoint_path, "training_state.json"), 'w') as f:
+            import json
+            json.dump({"step": step}, f)
+
+        # Create W&B Artifact
+        artifact_name = f"checkpoint-{step}"
+        artifact = wandb.Artifact(name=artifact_name, type='model')
+        artifact.add_dir(checkpoint_path) # Add entire checkpoint directory
+
+        # Log the artifact to W&B
+        wandb.log_artifact(artifact)
+        print(f"Checkpoint saved and artifact '{artifact_name}' uploaded at step {step}")
+
+    finally:
+        # Clean up local temporary directory
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+def load_checkpoint_from_artifact(artifact_path, device):
+    """Load model, tokenizer, and training states from a W&B artifact."""
+    print(f"Resuming training from artifact: {artifact_path}")
+    # Use W&B API to download the artifact
+    api = wandb.Api()
+    artifact = api.artifact(artifact_path)
+
+    # Download artifact to a temporary directory
+    temp_dir = tempfile.mkdtemp()
+    try:
+        artifact_dir = artifact.download(root=temp_dir)
+        print(f"Artifact downloaded to: {artifact_dir}")
+
+        # Load model and tokenizer
+        model = setup_model() # Initialize model architecture
+        model.load_state_dict(torch.load(os.path.join(artifact_dir, "pytorch_model.bin"), map_location=device))
+        model.to(device)
+        tokenizer = setup_tokenizer()
+        # Note: Tokenizer state is usually static, but loading from artifact ensures consistency
+        # tokenizer = AutoTokenizer.from_pretrained(artifact_dir)
+
+        # Load training states if they exist
+        start_step = 0
+        optimizer_state = None
+        scheduler_state = None
+
+        if os.path.exists(os.path.join(artifact_dir, "optimizer.pt")):
+            optimizer_state = torch.load(os.path.join(artifact_dir, "optimizer.pt"), map_location=device)
+        if os.path.exists(os.path.join(artifact_dir, "scheduler.pt")):
+            scheduler_state = torch.load(os.path.join(artifact_dir, "scheduler.pt"), map_location=device)
+        if os.path.exists(os.path.join(artifact_dir, "training_state.json")):
+            import json
+            with open(os.path.join(artifact_dir, "training_state.json"), 'r') as f:
+                training_state = json.load(f)
+                start_step = training_state.get("step", 0)
+
+        print(f"Checkpoint loaded. Resuming from step {start_step}")
+        return model, tokenizer, start_step, optimizer_state, scheduler_state
+
+    finally:
+        # Clean up downloaded artifact directory
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+def train():
+    """Main training loop"""
+    # Initialize W&B
+    run = wandb.init(
+        project=TRAINING_CONFIG["wandb_project"],
+        entity=TRAINING_CONFIG["wandb_entity"],
+        name=TRAINING_CONFIG["run_name"],
+        config=TRAINING_CONFIG # Log hyperparameters
+    )
+
+    # Setup device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
+    start_step = 0
+    model = None
+    tokenizer = None
+    optimizer_state = None
+    scheduler_state = None
+
+    # Check for resumption
+    if TRAINING_CONFIG["resume_from_artifact"]:
+        model, tokenizer, start_step, optimizer_state, scheduler_state = \
+            load_checkpoint_from_artifact(TRAINING_CONFIG["resume_from_artifact"], device)
+        if TRAINING_CONFIG["bf16"] and model.dtype != torch.bfloat16:
+             model = model.bfloat16()
+    else:
+        # Standard initialization
+        tokenizer = setup_tokenizer()
+        model = setup_model().to(device)
+        if TRAINING_CONFIG["bf16"]:
+            model = model.bfloat16()
+
+    # Setup data, optimizer, scheduler
+    dataset = setup_dataset(tokenizer)
+    dataloader = setup_dataloader(dataset)
+    optimizer = setup_optimizer(model)
+    if optimizer_state:
+        optimizer.load_state_dict(optimizer_state)
+
+    scheduler = get_linear_schedule_with_warmup(
+        optimizer,
+        num_warmup_steps=TRAINING_CONFIG["warmup_steps"],
+        num_training_steps=TRAINING_CONFIG["max_steps"]
+    )
+    if scheduler_state:
+        scheduler.load_state_dict(scheduler_state)
+
+    # Training loop
+    model.train()
+    accumulated_loss = 0
+    optimizer.zero_grad()
+
+    data_iter = iter(dataloader)
+
+    # Use tqdm starting from the resumed step
+    pbar = tqdm(range(start_step + 1, TRAINING_CONFIG["max_steps"] + 1), desc="Training", initial=start_step, total=TRAINING_CONFIG["max_steps"])
+
+    for step in pbar:
+        try:
+            batch = next(data_iter)
+        except StopIteration:
+            # Reinitialize iterator when dataset ends (for streaming)
+            data_iter = iter(dataloader)
+            batch = next(data_iter)
+
+        # Move batch to device
+        batch = {k: v.to(device) for k, v in batch.items() if isinstance(v, torch.Tensor)}
+
+        # Forward pass
+        outputs = model(**batch)
+        loss = outputs.loss / TRAINING_CONFIG["gradient_accumulation_steps"]
+
+        # Backward pass
+        loss.backward()
+
+        accumulated_loss += loss.item() * TRAINING_CONFIG["gradient_accumulation_steps"] # Adjust for accumulation
+
+        # Gradient accumulation
+        if step % TRAINING_CONFIG["gradient_accumulation_steps"] == 0:
+            optimizer.step()
+            scheduler.step()
+            optimizer.zero_grad()
+
+        # Logging
+        if step % TRAINING_CONFIG["log_steps"] == 0:
+            avg_loss = accumulated_loss / TRAINING_CONFIG["log_steps"]
+            current_lr = scheduler.get_last_lr()[0]
+            # Log metrics to W&B
+            wandb.log({
+                "train/loss": avg_loss,
+                "train/learning_rate": current_lr,
+                "train/step": step
+            }, step=step)
+            pbar.set_postfix({"Loss": f"{avg_loss:.4f}", "LR": f"{current_lr:.2e}"})
+            accumulated_loss = 0
+
+        # Save checkpoint as W&B Artifact
+        if step % TRAINING_CONFIG["save_steps"] == 0:
+            save_model_artifact(model, tokenizer, step, optimizer, scheduler)
+
+    # Final save
+    if TRAINING_CONFIG["max_steps"] % TRAINING_CONFIG["save_steps"] != 0:
+        save_model_artifact(model, tokenizer, TRAINING_CONFIG["max_steps"], optimizer, scheduler)
+
+    print("Training completed.")
+    run.finish()
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Train LLM with W&B integration")
+    parser.add_argument("--resume_from_artifact", type=str, help="W&B artifact path to resume from (e.g., entity/project/artifact_name:v1)")
+    parser.add_argument("--run_name", type=str, help="Optional name for the W&B run")
+    args = parser.parse_args()
+
+    # Update config with command line arguments if provided
+    if args.resume_from_artifact:
+        TRAINING_CONFIG["resume_from_artifact"] = args.resume_from_artifact
+    if args.run_name:
+        TRAINING_CONFIG["run_name"] = args.run_name
+
+    train()
+```
+
+### Key Changes and Features:
+
+1.  **W&B Initialization (`wandb.init`)**:
+    *   Added at the beginning of the `train` function.
+    *   Logs the `TRAINING_CONFIG` dictionary as hyperparameters.
+    *   Allows specifying a `run_name` via command line.
+
+2.  **Metric Logging (`wandb.log`)**:
+    *   Inside the training loop, after accumulating loss, `wandb.log` sends `train/loss` and `train/learning_rate` to W&B.
+    *   Uses a step prefix (`train/`) for better organization in the W&B dashboard.
+
+3.  **Checkpoint Saving as Artifacts (`save_model_artifact`)**:
+    *   This new function saves the model, tokenizer, optimizer state, scheduler state, and current step to a **temporary local directory**.
+    *   It then creates a W&B `Artifact` of type `'model'`, adds the entire checkpoint directory to it using `artifact.add_dir()`.
+    *   The artifact is logged using `wandb.log_artifact()`, which uploads it to W&B's remote storage.
+    *   Crucially, it **cleans up the local temporary directory** after uploading, minimizing local filesystem reliance.
+
+4.  **Resuming from Artifacts (`load_checkpoint_from_artifact`)**:
+    *   This new function takes a W&B artifact path (e.g., `entity/project/checkpoint-5000:v0`).
+    *   It uses the W&B `Public API` (`wandb.Api()`) to access the artifact.
+    *   Downloads the artifact to a temporary local directory using `artifact.download()`.
+    *   Loads the model weights, tokenizer, and (if present) the optimizer/scheduler states and the last training step from this downloaded directory.
+    *   **Cleans up the temporary download directory** afterwards.
+    *   The main `train` function checks `TRAINING_CONFIG["resume_from_artifact"]`. If set, it calls this function to initialize the model, states, and `start_step`.
+
+5.  **Command-Line Arguments**:
+    *   Added `argparse` to easily specify `--resume_from_artifact` and `--run_name` when starting the script.
+    *   Example to resume: `python pretrain_with_wandb.py --resume_from_artifact myentity/myproject/checkpoint-5000:v0 --run_name resumed_run`
+
+6.  **Improved Progress Tracking**:
+    *   Uses `tqdm` with `initial=start_step` and `total=max_steps` to correctly show progress when resuming.
+
+### How to Use:
+
+1.  **Ensure W&B Setup**:
+    *   Make sure you've run `wandb login` or set the `WANDB_API_KEY` environment variable.
+
+2.  **Install Dependencies**:
+    ```bash
+    pip install torch transformers datasets accelerate tqdm wandb huggingface_hub
+    ```
+
+3.  **Run Initial Training**:
+    ```bash
+    python pretrain_with_wandb.py --run_name initial_run
+    ```
+    This will start training from scratch, log metrics to W&B, and upload checkpoints as artifacts (e.g., `checkpoint-1000:v0`, `checkpoint-2000:v0`).
+
+4.  **Resume Training**:
+    *   Find the desired checkpoint artifact in your W&B project (e.g., `myentity/myproject/checkpoint-2000:v0`).
+    *   Run the script with the `--resume_from_artifact` flag:
+    ```bash
+    python pretrain_with_wandb.py --resume_from_artifact myentity/myproject/checkpoint-2000:v0 --run_name resumed_run_from_2000
+    ```
+    This will download `checkpoint-2000:v0`, load the model/optimizer/scheduler states, and continue training from step 2001, logging to a *new* W&B run named `resumed_run_from_2000`.
+
+This approach efficiently uses W&B's artifact system for checkpointing, keeps local storage usage minimal, and provides robust resumption capabilities.
