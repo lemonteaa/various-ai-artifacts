@@ -1,0 +1,489 @@
+Model used: GLM 4.6
+----
+
+
+<item_1>
+```py
+from datasets import load_dataset
+ds = load_dataset("zalando-datasets/fashion_mnist")
+```
+</item_1>
+<item_2>
+For any pair of vectors x, y in R^n, let \kappa := < x', y' >, where x' and y' are the L2 normalized unit vector version of x and y respectively.
+Then the Neural Tangent Kernel for a single hidden layer infinite width MLP, under some specific technical conditions on activation function and the limiting parametrization used,
+becomes the kernel function NTK(x, y) = NTK( \kappa ) := \kappa + \frac{1}{\pi} \sqrt{ 1 - \kappa^2 } + \frac{2 \kappa}{\pi} \left( \arcsin( \sqrt{ (1 + \kappa)/2 } ) - \arcsin( \sqrt{ (1 - \kappa)/2 } ) \right).
+
+For any kernel function K(_, _) and set of vectors X = {x_1, \cdots, x_n} , we denote by K(X,X) the matrix whose (i,j) entry is K(x_i, x_j). Similarly for any x (not necessarily in X), denote by K(x,X) the vector [ ... K(x, x_i) ... ].
+
+Under squared loss, in the function space, the GD solved optimal function against a training dataset (X, Y), is given by f(x) = K(x, X) K(X,X)^{-1} Y. In the simplest case when output space is a scalar, the combined dataset label Y is a vector, so it means we first solve the system of linear equation whose matrix is K(X,X) and target value is Y. Then dot product the solved coefficients with the vector K(x,X).
+</item_2>
+<item_3>
+---
+annotations_creators:
+- expert-generated
+language_creators:
+- found
+language:
+- en
+license:
+- mit
+multilinguality:
+- monolingual
+size_categories:
+- 10K<n<100K
+source_datasets:
+- original
+task_categories:
+- image-classification
+task_ids:
+- multi-class-image-classification
+paperswithcode_id: fashion-mnist
+pretty_name: FashionMNIST
+dataset_info:
+  config_name: fashion_mnist
+  features:
+  - name: image
+    dtype: image
+  - name: label
+    dtype:
+      class_label:
+        names:
+          '0': T - shirt / top
+          '1': Trouser
+          '2': Pullover
+          '3': Dress
+          '4': Coat
+          '5': Sandal
+          '6': Shirt
+          '7': Sneaker
+          '8': Bag
+          '9': Ankle boot
+  splits:
+  - name: train
+    num_bytes: 31049107.0
+    num_examples: 60000
+  - name: test
+    num_bytes: 5192560.0
+    num_examples: 10000
+  download_size: 36106894
+  dataset_size: 36241667.0
+configs:
+- config_name: fashion_mnist
+  data_files:
+  - split: train
+    path: fashion_mnist/train-*
+  - split: test
+    path: fashion_mnist/test-*
+  default: true
+---
+
+# Dataset Card for FashionMNIST
+
+## Table of Contents
+- [Dataset Description](#dataset-description)
+  - [Dataset Summary](#dataset-summary)
+  - [Supported Tasks and Leaderboards](#supported-tasks-and-leaderboards)
+  - [Languages](#languages)
+- [Dataset Structure](#dataset-structure)
+  - [Data Instances](#data-instances)
+  - [Data Fields](#data-fields)
+  - [Data Splits](#data-splits)
+- [Dataset Creation](#dataset-creation)
+  - [Curation Rationale](#curation-rationale)
+  - [Source Data](#source-data)
+  - [Annotations](#annotations)
+  - [Personal and Sensitive Information](#personal-and-sensitive-information)
+- [Considerations for Using the Data](#considerations-for-using-the-data)
+  - [Social Impact of Dataset](#social-impact-of-dataset)
+  - [Discussion of Biases](#discussion-of-biases)
+  - [Other Known Limitations](#other-known-limitations)
+- [Additional Information](#additional-information)
+  - [Dataset Curators](#dataset-curators)
+  - [Licensing Information](#licensing-information)
+  - [Citation Information](#citation-information)
+  - [Contributions](#contributions)
+
+## Dataset Description
+
+- **Homepage:** [GitHub](https://github.com/zalandoresearch/fashion-mnist)
+- **Repository:** [GitHub](https://github.com/zalandoresearch/fashion-mnist)
+- **Paper:** [arXiv](https://arxiv.org/pdf/1708.07747.pdf)
+- **Leaderboard:**
+- **Point of Contact:**
+
+### Dataset Summary
+
+Fashion-MNIST is a dataset of Zalando's article images—consisting of a training set of 60,000 examples and a test set of 10,000 examples. Each example is a 28x28 grayscale image, associated with a label from 10 classes. We intend Fashion-MNIST to serve as a direct drop-in replacement for the original MNIST dataset for benchmarking machine learning algorithms. It shares the same image size and structure of training and testing splits.
+
+### Supported Tasks and Leaderboards
+
+- `image-classification`: The goal of this task is to classify a given image of Zalando's article into one of 10 classes. The leaderboard is available [here](https://paperswithcode.com/sota/image-classification-on-fashion-mnist).
+
+### Languages
+
+[More Information Needed]
+
+## Dataset Structure
+
+### Data Instances
+
+A data point comprises an image and its label.
+
+```
+{
+  'image': <PIL.PngImagePlugin.PngImageFile image mode=L size=28x28 at 0x27601169DD8>,
+  'label': 9
+}
+```
+
+### Data Fields
+
+- `image`: A `PIL.Image.Image` object containing the 28x28 image. Note that when accessing the image column: `dataset[0]["image"]` the image file is automatically decoded. Decoding of a large number of image files might take a significant amount of time. Thus it is important to first query the sample index before the `"image"` column, *i.e.* `dataset[0]["image"]` should **always** be preferred over `dataset["image"][0]`.
+- `label`: an integer between 0 and 9 representing the classes with the following mapping:
+  | Label | Description |
+  | --- | --- |
+  | 0 | T-shirt/top |
+  | 1 | Trouser |
+  | 2 | Pullover |
+  | 3 | Dress |
+  | 4 | Coat |
+  | 5 | Sandal |
+  | 6 | Shirt |
+  | 7 | Sneaker |
+  | 8 | Bag |
+  | 9 | Ankle boot |
+
+### Data Splits
+
+The data is split into training and test set. The training set contains 60,000 images and the test set 10,000 images.
+
+## Dataset Creation
+
+### Curation Rationale
+
+**From the arXiv paper:**
+The original MNIST dataset contains a lot of handwritten digits. Members of the AI/ML/Data Science community love this dataset and use it as a benchmark to validate their algorithms. In fact, MNIST is often the first dataset researchers try. "If it doesn't work on MNIST, it won't work at all", they said. "Well, if it does work on MNIST, it may still fail on others."
+
+Here are some good reasons:
+
+- MNIST is too easy. Convolutional nets can achieve 99.7% on MNIST. Classic machine learning algorithms can also achieve 97% easily. Check out our side-by-side benchmark for Fashion-MNIST vs. MNIST, and read "Most pairs of MNIST digits can be distinguished pretty well by just one pixel."
+- MNIST is overused. In this April 2017 Twitter thread, Google Brain research scientist and deep learning expert Ian Goodfellow calls for people to move away from MNIST.
+- MNIST can not represent modern CV tasks, as noted in this April 2017 Twitter thread, deep learning expert/Keras author François Chollet.
+...
+</item_3>
+
+Given the info above, use python numpy/scipy to code up a NTK demo. It should sample a small dataset from the huggingface dataset `zalando-datasets/fashion_mnist` in a balanced way (same number of sample from each label category) (sample from the training portion), then compute the NTK on that dataset, and then test the performance of the hypothetical optimal function against some examples from the test set (again, small sample only). The idea/the point is that we don't want to do any actual gradient descent nor actual neural network - everything is encapsulated in the NTK and the behavior can be expressed through the kernel trick.
+
+----
+
+<think>
+    Let me break down this task: 
+
+        I need to create a Python demo that uses the Neural Tangent Kernel (NTK) for FashionMNIST classification. 
+        I need to sample a small, balanced dataset from the FashionMNIST training set. 
+        Compute the NTK for this dataset. 
+        Test the performance of the NTK classifier on a small sample from the test set. 
+
+    The NTK formula is given as:
+    NTK(x, y) = NTK(κ) := κ + (1/π)√(1 - κ²) + (2κ/π)(arcsin(√((1 + κ)/2)) - arcsin(√((1 - κ)/2))) 
+
+    where κ = <x', y'> is the inner product of L2 normalized versions of x and y. 
+
+    The optimal function under squared loss is:
+    f(x) = K(x, X) K(X,X)⁻¹ Y 
+
+    where K is the kernel function (NTK in our case), X is the training data, and Y is the training labels. 
+
+    Let me plan the implementation: 
+
+        Load the FashionMNIST dataset using the huggingface datasets library. 
+        Sample a balanced subset from the training set (e.g., 10 samples per class). 
+        Sample a small subset from the test set. 
+        Implement the NTK function. 
+        Compute the NTK matrix for the training data. 
+        Compute the NTK vectors for the test data against the training data. 
+        Solve the linear system to get the optimal function. 
+        Evaluate the performance on the test set. 
+
+    Let's code this step by step: 
+     
+</think>
+
+
+
+
+
+I'll create a Python demo that implements the Neural Tangent Kernel (NTK) for FashionMNIST classification. This will showcase how kernel methods can capture the behavior of infinite-width neural networks without actually training a network.
+
+```python
+import numpy as np
+from datasets import load_dataset
+from scipy.linalg import solve
+from sklearn.metrics import accuracy_score, confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+def load_balanced_fashion_mnist(num_samples_per_class=10):
+    """
+    Load a balanced subset of FashionMNIST with the specified number of samples per class.
+    """
+    # Load the dataset
+    ds = load_dataset("zalando-datasets/fashion_mnist")
+    
+    # Get the training and test sets
+    train_data = ds['train']
+    test_data = ds['test']
+    
+    # Sample balanced data from the training set
+    train_indices = []
+    for label in range(10):  # There are 10 classes in FashionMNIST
+        # Get indices of all samples with this label
+        label_indices = [i for i, example in enumerate(train_data) if example['label'] == label]
+        # Randomly select num_samples_per_class indices
+        selected_indices = np.random.choice(label_indices, size=num_samples_per_class, replace=False)
+        train_indices.extend(selected_indices)
+    
+    # Create balanced training dataset
+    X_train = []
+    y_train = []
+    for idx in train_indices:
+        # Convert PIL image to numpy array and flatten
+        img = np.array(train_data[idx]['image'], dtype=np.float32) / 255.0
+        X_train.append(img.flatten())
+        y_train.append(train_data[idx]['label'])
+    
+    X_train = np.array(X_train)
+    y_train = np.array(y_train)
+    
+    # Sample a smaller test set (e.g., 5 samples per class)
+    test_indices = []
+    for label in range(10):
+        label_indices = [i for i, example in enumerate(test_data) if example['label'] == label]
+        selected_indices = np.random.choice(label_indices, size=5, replace=False)
+        test_indices.extend(selected_indices)
+    
+    X_test = []
+    y_test = []
+    for idx in test_indices:
+        img = np.array(test_data[idx]['image'], dtype=np.float32) / 255.0
+        X_test.append(img.flatten())
+        y_test.append(test_data[idx]['label'])
+    
+    X_test = np.array(X_test)
+    y_test = np.array(y_test)
+    
+    return X_train, y_train, X_test, y_test
+
+def ntk_kernel(x, y):
+    """
+    Compute the Neural Tangent Kernel for two vectors x and y.
+    
+    NTK(x, y) = κ + (1/π)√(1 - κ²) + (2κ/π)(arcsin(√((1 + κ)/2)) - arcsin(√((1 - κ)/2)))
+    where κ = <x', y'> is the inner product of L2 normalized versions of x and y.
+    """
+    # L2 normalize the vectors
+    x_norm = x / np.linalg.norm(x)
+    y_norm = y / np.linalg.norm(y)
+    
+    # Compute κ (inner product of normalized vectors)
+    kappa = np.dot(x_norm, y_norm)
+    
+    # Clamp kappa to [-1, 1] to avoid numerical issues
+    kappa = np.clip(kappa, -1.0, 1.0)
+    
+    # Compute the NTK
+    term1 = kappa
+    term2 = (1/np.pi) * np.sqrt(1 - kappa**2)
+    
+    # Avoid potential numerical issues in the arcsin terms
+    term3 = 0
+    if kappa > -1 and kappa < 1:
+        term3 = (2*kappa/np.pi) * (np.arcsin(np.sqrt((1 + kappa)/2)) - np.arcsin(np.sqrt((1 - kappa)/2)))
+    
+    ntk_value = term1 + term2 + term3
+    
+    return ntk_value
+
+def compute_ntk_matrix(X1, X2=None):
+    """
+    Compute the NTK matrix for a set of vectors.
+    
+    Parameters:
+    X1: numpy array of shape (n1, d)
+    X2: numpy array of shape (n2, d) or None (if None, compute X1 against itself)
+    
+    Returns:
+    K: numpy array of shape (n1, n2) where K[i,j] = NTK(X1[i], X2[j])
+    """
+    if X2 is None:
+        X2 = X1
+    
+    n1, d1 = X1.shape
+    n2, d2 = X2.shape
+    
+    assert d1 == d2, "Dimension mismatch between X1 and X2"
+    
+    K = np.zeros((n1, n2))
+    
+    for i in range(n1):
+        for j in range(n2):
+            K[i, j] = ntk_kernel(X1[i], X2[j])
+    
+    return K
+
+def one_hot_encode(y, num_classes=10):
+    """
+    Convert integer labels to one-hot encoded vectors.
+    """
+    one_hot = np.zeros((len(y), num_classes))
+    for i, label in enumerate(y):
+        one_hot[i, label] = 1
+    return one_hot
+
+def evaluate_ntk_classifier(X_train, y_train, X_test, y_test):
+    """
+    Train and evaluate an NTK classifier.
+    
+    Parameters:
+    X_train: numpy array of shape (n_train, d)
+    y_train: numpy array of shape (n_train,)
+    X_test: numpy array of shape (n_test, d)
+    y_test: numpy array of shape (n_test,)
+    
+    Returns:
+    y_pred: numpy array of shape (n_test,) - predicted labels
+    accuracy: float - classification accuracy
+    """
+    # One-hot encode the training labels
+    y_train_onehot = one_hot_encode(y_train)
+    
+    # Compute the NTK matrix for the training data
+    print("Computing NTK matrix for training data...")
+    K_train = compute_ntk_matrix(X_train)
+    
+    # Add a small value to the diagonal for numerical stability
+    K_train += np.eye(K_train.shape[0]) * 1e-6
+    
+    # Compute the NTK vectors for the test data against the training data
+    print("Computing NTK vectors for test data...")
+    K_test = compute_ntk_matrix(X_test, X_train)
+    
+    # Solve the linear system for each output dimension
+    print("Solving linear systems...")
+    alpha = solve(K_train, y_train_onehot)
+    
+    # Compute the predictions
+    print("Making predictions...")
+    y_pred_scores = np.dot(K_test, alpha)
+    y_pred = np.argmax(y_pred_scores, axis=1)
+    
+    # Compute accuracy
+    accuracy = accuracy_score(y_test, y_pred)
+    
+    return y_pred, accuracy
+
+def visualize_predictions(X_test, y_test, y_pred, num_samples=10):
+    """
+    Visualize some test samples with their true and predicted labels.
+    """
+    # FashionMNIST class names
+    class_names = ['T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat',
+                   'Sandal', 'Shirt', 'Sneaker', 'Bag', 'Ankle boot']
+    
+    # Select random samples to visualize
+    indices = np.random.choice(len(X_test), size=min(num_samples, len(X_test)), replace=False)
+    
+    plt.figure(figsize=(12, 8))
+    for i, idx in enumerate(indices):
+        plt.subplot(2, 5, i+1)
+        plt.imshow(X_test[idx].reshape(28, 28), cmap='gray')
+        true_label = class_names[y_test[idx]]
+        pred_label = class_names[y_pred[idx]]
+        color = 'green' if y_test[idx] == y_pred[idx] else 'red'
+        plt.title(f"True: {true_label}\nPred: {pred_label}", color=color)
+        plt.axis('off')
+    
+    plt.tight_layout()
+    plt.savefig('ntk_predictions.png')
+    plt.show()
+
+def plot_confusion_matrix(y_test, y_pred):
+    """
+    Plot the confusion matrix.
+    """
+    # FashionMNIST class names
+    class_names = ['T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat',
+                   'Sandal', 'Shirt', 'Sneaker', 'Bag', 'Ankle boot']
+    
+    cm = confusion_matrix(y_test, y_pred)
+    
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                xticklabels=class_names, yticklabels=class_names)
+    plt.xlabel('Predicted Label')
+    plt.ylabel('True Label')
+    plt.title('Confusion Matrix')
+    plt.savefig('confusion_matrix.png')
+    plt.show()
+
+def main():
+    # Set random seed for reproducibility
+    np.random.seed(42)
+    
+    # Load a balanced subset of FashionMNIST
+    print("Loading FashionMNIST dataset...")
+    X_train, y_train, X_test, y_test = load_balanced_fashion_mnist(num_samples_per_class=20)
+    print(f"Training set shape: {X_train.shape}, Labels: {y_train.shape}")
+    print(f"Test set shape: {X_test.shape}, Labels: {y_test.shape}")
+    
+    # Evaluate the NTK classifier
+    print("\nEvaluating NTK classifier...")
+    y_pred, accuracy = evaluate_ntk_classifier(X_train, y_train, X_test, y_test)
+    print(f"Test accuracy: {accuracy:.4f}")
+    
+    # Visualize some predictions
+    print("\nVisualizing predictions...")
+    visualize_predictions(X_test, y_test, y_pred)
+    
+    # Plot confusion matrix
+    print("\nPlotting confusion matrix...")
+    plot_confusion_matrix(y_test, y_pred)
+
+if __name__ == "__main__":
+    main()
+```
+
+This implementation:
+
+1. **Loads a balanced subset** of FashionMNIST with a specified number of samples per class from both training and test sets.
+
+2. **Implements the Neural Tangent Kernel** as specified in the formula, handling numerical stability issues.
+
+3. **Computes the NTK matrix** for the training data and NTK vectors for test data against training data.
+
+4. **Solves the linear system** to find the optimal function parameters under squared loss.
+
+5. **Evaluates performance** on the test set and visualizes results with:
+   - Sample images with true and predicted labels
+   - A confusion matrix showing classification performance
+
+The key insight here is that we're using the kernel trick to capture the behavior of an infinite-width neural network without actually training one. The NTK encapsulates the model's behavior, allowing us to solve directly for the optimal function in the function space.
+
+The code is structured to be clear and modular, with functions for each major step. It includes visualizations to help understand the model's performance and potential failure cases.
+
+Note that the NTK computation can be slow for larger datasets due to its O(n²) complexity, which is why we're using a small subset of the data for this demo.
+
+
+----
+
+
+(Part of ) Other references I used (found manually):
+
+https://kellerjordan.github.io/posts/ntk_onehidden/
+
+https://rbcborealis.com/research-blogs/the-neural-tangent-kernel/
+
+
+
+
+
