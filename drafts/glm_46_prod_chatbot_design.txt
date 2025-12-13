@@ -1,0 +1,1489 @@
+(Older one)
+
+----
+
+
+```py
+"""
+Gradio Demo (Frontend)
+"""
+
+import gradio as gr
+from gradio import ChatMessage
+
+import uuid
+
+"""
+@dataclass
+class ChatMessage:
+   content: str | Component
+   metadata: MetadataDict = None
+   options: list[OptionDict] = None
+
+class MetadataDict(TypedDict):
+   title: NotRequired[str]
+   id: NotRequired[int | str]
+   parent_id: NotRequired[int | str]
+   log: NotRequired[str]
+   duration: NotRequired[float]
+   status: NotRequired[Literal["pending", "done"]]
+
+class OptionDict(TypedDict):
+   label: NotRequired[str]
+   value: str
+"""
+
+def main_call_llm(message_list):
+    res = cli.chat.completions.create(
+        model="qwen3",
+        messages=message_list,
+        tools=central_tool_registry.get_tool_list(),
+        parallel_tool_calls=True,
+        extra_body={ "parse_tool_calls": True }
+    )
+    return res
+
+
+def gradio_chat_fn(message, history, conversation):
+    conversation.append({ "role": "user", "content": message })
+    done = False
+    ui_msg = []
+    # Frontend: add dummy node
+    full_msg_id = str(uuid.uuid4())
+    ui_msg.append({ "role": "assistant", "content": "", "metadata": { "title": "Thinking...", "status": "pending", "id": full_msg_id } })
+    yield ui_msg
+    
+    while not done:
+        # Call LLM
+        res = main_call_llm(conversation)
+        conversation.append(res.choices[0].message)
+        if res.choices[0].finish_reason == 'tool_calls':
+            # Frontend: add reasoning step
+            ui_msg.append({ "role": "assistant", "content": res.choices[0].message.reasoning_content, "metadata": { "title": "", "id": res.id, "parent_id": full_msg_id } })
+            n_parallel_call = len(res.choices[0].message.tool_calls)
+            for tool_call in res.choices[0].message.tool_calls:
+                fn = tool_call.function
+                f_args = json.loads(fn.arguments)
+                f_id = tool_call.id
+                # Frontend: Add the init'ed tool call
+                display_title = central_tool_registry.get_tool_call_ui_display(fn.name, f_args)
+                ui_msg.append({ "role": "assistant", "content": "", "metadata": { "title": display_title, "status": "pending", "id": f_id, "parent_id": full_msg_id } })
+            yield ui_msg
+            for idx, tool_call in enumerate(res.choices[0].message.tool_calls):
+                fn = tool_call.function
+                f_args = json.loads(fn.arguments)
+                f_id = tool_call.id
+                # Backend: run the tool
+                f_ret = central_tool_registry.call_tool_dynamic_single_sync_raw(fn.name, f_args)
+                # Update the frontend display
+                ui_msg[-(n_parallel_call - idx)]["metadata"]["status"] = "done"
+                yield ui_msg
+                # Backend: append reply to prepare next round
+                conversation.append({ "role": "tool", "tool_call_id": f_id, "content": f_ret })
+        else:
+            # Frontend only: final update
+            ui_msg.append({ "role": "assistant", "content": res.choices[0].message.reasoning_content, "metadata": { "title": "", "id": res.id, "parent_id": full_msg_id } })
+            ui_msg.append({ "role": "assistant", "content": res.choices[0].message.content })
+            yield ui_msg
+            time.sleep(2)
+            i = -2
+            found_dummy_root = False
+            while not found_dummy_root:
+                if ui_msg[i]["metadata"]["id"] == full_msg_id:
+                    ui_msg[i]["metadata"]["status"] = "done"
+                    yield ui_msg
+                    found_dummy_root = True
+                else:
+                    i = i - 1
+            done = True
+
+
+
+demo = gr.ChatInterface(
+    gradio_chat_fn,
+    title="Thinking LLM Chat Interface 🤔",
+    type="messages",
+    chatbot=gr.Chatbot(layout="panel", type="messages", min_height=1000),
+    examples=[["Hello there"], [user_query_example_01]],
+    additional_inputs=[gr.State(value=[ { "role": "system", "content": system_prompt } ])],
+    #additional_outputs=[gr.State()]
+)
+
+```
+
+Above is snippet of a "Hello world of LLM AppDev" I'm working on. Key point is introduce the ARC (Agency, Reasoning, and Tool Calling) aspect of modern LLM, the relevant OpenAI API standard (which is a de facto industry standard), and also a bit on frontend flow design, illustrating using gradio. I think the coding style is specialized for learning from reading. However, it's not good code in practise, fundamentally because the highly stateful + imperative code style is unsustainable. (OpenAI chatcompletion is like functional style, but then now you have to manage the state on the API consumer side. That being said I also suspect their new stateful "response" API may not get adopted as widely outside of OpenAI, specifically in the open weight model community, because it places more assumption on how that states are managed, and also now requires a bundled DB effectively, with the complexity that would imply)
+
+But how to refactor it? Untangling seems difficult at first glance and may even increase code complexity in the short term. I have thought of introducing new abstraction, but designing an abstraction that is adapted enough and also flexible, so that it doesn't end up having even more semantic overhead than it saves in the language complexity, seems not trivial.
+
+Additional info on gradio:
+in the function input args, message is the user message str, history is a list of UI display item from last round, conversation is the single additional state (a mutable object so update is done simply by mutating it). gradio requires you to simply yield the list of UI display item to append, in order to update the UI. You can yield multiple time.
+
+Although the gradio UI item data structure is similar to OpenAI ChatMessage (both have { "role": "user", "content": "User message here" } as the base), for our use case of interleaved thinking + tool use, the display requirement makes it no longer a one one mapping. Below is a file I wrote showing my thought process while coding up the above:
+```
+{ "role": "assistant", "content": "", "metadata": { "title": "Thinking...", "status": "pending", "id": 1 } # Dummy node
+
+----
+{ "role": "assistant", "content": "Okay so the user asked about...", "metadata": { "title": "", "id": "from api", "parent_id": 1 } }
+
+{ "role": "assistant", "content": "<populate with result later>", "metadata": { "title": "Use tool `web_search` with query **Hello world**", "status": "pending", "id": "tool_call_id", "parent_id": 1 } }
+{ "role": "assistant", "content": "<populate with result later>", "metadata": { "title": "Use tool `web_search` with query **tech singularity**", "status": "pending", "id": "tool_call_id", "parent_id": 1 } }
+----
+Above is from both assistant respond plus our tool reply messages
+
+repeat N
+
+last round
+
+{ "role": "assistant", "content": "Therefore, we should answer...", "metadata": { "title": "", "id": "from api", "parent_id": 1 } }
+{ "role": "assistant", "content": "Final ans shown to user" }
+----
+This is from the last round single assistant message.
+```
+
+This is my concept of how to map OpenAI message to gradio display. Each assistant message map to more than one UI item. For the intermediate messages, tool reply will also add info to the mapped UI items. So strictly speaking it's neither one-to-many nor many-to-one.
+
+```
+Format of message list has some subtle part:
+
+role: system, user, assistant, tool
+info: one or more of: content, reasoning_content, tool_calls (s due to parallel tool call)
+
+OOB (Out of band) indicator needed to disambiguate: ../finish_reason: stop, length, tool_calls
+
+typical flow:
+
+stop_reason = tool_calls, then:
+
+role = assistant, { content: None, reasoning_content: "...", tool_calls: [...] }
+
+
+application append MULTIPLE messages:
+role = tool, { content: "result from tool call", tool_call_id: "kjrbewjhbwej" }
+
+final response would be:
+role = assistant, { content: "Sent to user", reasoning_content: "...", tool_calls: None }
+
+
+----
+
+How does it maps to gradio?
+
+
+|-- reason_step 1
+|   |
+|   |-- tool_call 1
+|   |   |
+|   |   |-- tool_call_result 1
+|   |
+|   |-- tool_call 2
+|   |   |
+|   |   |-- tool_call_result 2
+|   |
+|   reason_step 2
+|   |
+|   |-- tool_call 3
+|   |   |
+|   |   |-- tool_call_result 3
+|   |
+|   reason_step 3
+|
+answer
+```
+
+Earlier draft where main focus is understanding the OpenAI API schema in depth. The three fields: content, reasoning_content (extracted chain of thought), tool_calls, have nontrivial interaction for distinct type of messages. Hence need for OOB indicator, but it does make things more complex because now instead of just the naked object, we wrap it like { extra_info: <something>, obj: <actual obj> }. (This is a pattern seen throughout the OpenAI API spec) (Note: OpenAI, *not* OpenAPI)
+
+You may now proceed with analysis.
+
+
+
+
+    The code provided is a Gradio-based chat interface that demonstrates the interaction between a user and an LLM (Language Model) with tool calling capabilities. The main function gradio_chat_fn handles the conversation flow, including reasoning steps and tool calls. 
+
+    Let me analyze the code and identify areas for refactoring: 
+
+         
+
+        State Management: The current implementation uses a mutable conversation object to maintain the state of the conversation. This is a simple approach but can become difficult to manage as the complexity grows. 
+         
+
+        UI Updates: The UI updates are handled by yielding a list of UI messages (ui_msg). This is a direct approach but couples the logic of conversation flow with the UI representation. 
+         
+
+        Tool Call Handling: The tool call handling is embedded within the main conversation loop, making the code harder to read and maintain. 
+         
+
+        Error Handling: There's no explicit error handling for tool calls or API failures. 
+         
+
+        Code Structure: The main function is doing too many things - managing conversation state, calling the LLM, handling tool calls, and updating the UI. 
+         
+
+    Now, let's propose a refactoring strategy: 
+
+         
+
+        Introduce a Conversation Manager: Create a class to manage the conversation state, separate from the UI logic. 
+         
+
+        Create a Tool Call Handler: Abstract the tool call handling into a separate component. 
+         
+
+        Introduce a UI Message Builder: Create a component that's responsible for building the UI messages based on the conversation state. 
+         
+
+        Add Error Handling: Implement proper error handling for tool calls and API failures. 
+         
+
+        Use Functional Programming: Where possible, use functional programming principles to reduce state mutation. 
+         
+
+    Let's now sketch out the refactored code: 
+     
+
+ 
+
+
+
+
+# Refactoring the LLM Chat Interface
+
+Looking at your code, I can see you've created a functional but complex chat interface that demonstrates the ARC (Agency, Reasoning, and Tool Calling) aspects of modern LLMs. You're right that the current stateful, imperative style is unsustainable for more complex applications.
+
+## Analysis of Current Issues
+
+1. **Tight Coupling**: The UI logic, conversation management, and tool execution are all tightly coupled in one function.
+2. **State Management**: The conversation state is managed through mutation, which makes the flow harder to follow.
+3. **Mixed Responsibilities**: The main function handles API calls, UI updates, and tool execution.
+4. **Limited Error Handling**: There's no robust error handling for failed tool calls or API issues.
+
+## Refactoring Strategy
+
+I'll propose a refactoring that introduces clear abstractions while maintaining the functionality:
+
+```python
+import gradio as gr
+from gradio import ChatMessage
+import uuid
+import json
+import time
+from typing import List, Dict, Any, Optional, Tuple, Generator
+from dataclasses import dataclass, field
+from enum import Enum
+
+# Enum for message types
+class MessageType(Enum):
+    USER = "user"
+    ASSISTANT = "assistant"
+    TOOL = "tool"
+    SYSTEM = "system"
+
+# Enum for tool call status
+class ToolStatus(Enum):
+    PENDING = "pending"
+    DONE = "done"
+
+# Data structures for better type safety
+@dataclass
+class ToolCall:
+    id: str
+    name: str
+    arguments: Dict[str, Any]
+    status: ToolStatus = ToolStatus.PENDING
+    result: Optional[str] = None
+
+@dataclass
+class Message:
+    role: MessageType
+    content: Optional[str] = None
+    reasoning_content: Optional[str] = None
+    tool_calls: Optional[List[ToolCall]] = None
+    tool_call_id: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+@dataclass
+class Conversation:
+    messages: List[Message] = field(default_factory=list)
+    
+    def add_message(self, message: Message) -> None:
+        self.messages.append(message)
+    
+    def to_api_format(self) -> List[Dict[str, Any]]:
+        """Convert to format expected by the API"""
+        api_messages = []
+        for msg in self.messages:
+            api_msg = {"role": msg.role.value}
+            
+            if msg.content is not None:
+                api_msg["content"] = msg.content
+                
+            if msg.reasoning_content is not None:
+                api_msg["reasoning_content"] = msg.reasoning_content
+                
+            if msg.tool_calls is not None:
+                api_msg["tool_calls"] = [
+                    {
+                        "id": tc.id,
+                        "function": {
+                            "name": tc.name,
+                            "arguments": json.dumps(tc.arguments)
+                        }
+                    }
+                    for tc in msg.tool_calls
+                ]
+                
+            if msg.tool_call_id is not None:
+                api_msg["tool_call_id"] = msg.tool_call_id
+                
+            api_messages.append(api_msg)
+        
+        return api_messages
+
+# UI Message Builder
+class UIMessageBuilder:
+    @staticmethod
+    def create_thinking_node() -> Dict[str, Any]:
+        """Create a dummy thinking node"""
+        full_msg_id = str(uuid.uuid4())
+        return {
+            "role": "assistant", 
+            "content": "", 
+            "metadata": {
+                "title": "Thinking...", 
+                "status": ToolStatus.PENDING.value, 
+                "id": full_msg_id
+            }
+        }
+    
+    @staticmethod
+    def create_reasoning_node(reasoning: str, parent_id: str) -> Dict[str, Any]:
+        """Create a reasoning step node"""
+        return {
+            "role": "assistant",
+            "content": reasoning,
+            "metadata": {
+                "title": "",
+                "id": str(uuid.uuid4()),
+                "parent_id": parent_id
+            }
+        }
+    
+    @staticmethod
+    def create_tool_call_node(tool_call: ToolCall, parent_id: str) -> Dict[str, Any]:
+        """Create a tool call node"""
+        display_title = central_tool_registry.get_tool_call_ui_display(
+            tool_call.name, tool_call.arguments
+        )
+        return {
+            "role": "assistant",
+            "content": "",
+            "metadata": {
+                "title": display_title,
+                "status": tool_call.status.value,
+                "id": tool_call.id,
+                "parent_id": parent_id
+            }
+        }
+    
+    @staticmethod
+    def create_final_answer_node(content: str) -> Dict[str, Any]:
+        """Create a final answer node"""
+        return {
+            "role": "assistant",
+            "content": content
+        }
+
+# Tool Call Handler
+class ToolCallHandler:
+    @staticmethod
+    def execute_tool_calls(tool_calls: List[ToolCall]) -> List[ToolCall]:
+        """Execute tool calls and update their status and results"""
+        for tool_call in tool_calls:
+            try:
+                result = central_tool_registry.call_tool_dynamic_single_sync_raw(
+                    tool_call.name, tool_call.arguments
+                )
+                tool_call.result = result
+                tool_call.status = ToolStatus.DONE
+            except Exception as e:
+                tool_call.result = f"Error: {str(e)}"
+                tool_call.status = ToolStatus.DONE
+        return tool_calls
+
+# LLM API Handler
+class LLMHandler:
+    @staticmethod
+    def call_llm(conversation: Conversation) -> Tuple[Message, str]:
+        """Call the LLM API and return the response message and finish reason"""
+        res = main_call_llm(conversation.to_api_format())
+        
+        # Extract the message from the API response
+        api_message = res.choices[0].message
+        
+        # Convert to our Message format
+        tool_calls = []
+        if api_message.tool_calls:
+            for tc in api_message.tool_calls:
+                tool_calls.append(ToolCall(
+                    id=tc.id,
+                    name=tc.function.name,
+                    arguments=json.loads(tc.function.arguments)
+                ))
+        
+        message = Message(
+            role=MessageType.ASSISTANT,
+            content=api_message.content,
+            reasoning_content=getattr(api_message, "reasoning_content", None),
+            tool_calls=tool_calls if tool_calls else None
+        )
+        
+        return message, res.choices[0].finish_reason
+
+# Main Chat Logic
+class ChatFlow:
+    def __init__(self):
+        self.conversation = Conversation()
+        self.ui_builder = UIMessageBuilder()
+        self.tool_handler = ToolCallHandler()
+        self.llm_handler = LLMHandler()
+    
+    def process_user_message(self, user_message: str) -> Generator[List[Dict[str, Any]], None, None]:
+        """Process a user message and generate UI updates"""
+        # Add user message to conversation
+        self.conversation.add_message(Message(
+            role=MessageType.USER,
+            content=user_message
+        ))
+        
+        # Create initial thinking node
+        thinking_node = self.ui_builder.create_thinking_node()
+        parent_id = thinking_node["metadata"]["id"]
+        ui_messages = [thinking_node]
+        yield ui_messages
+        
+        # Main conversation loop
+        done = False
+        while not done:
+            # Call LLM
+            assistant_message, finish_reason = self.llm_handler.call_llm(self.conversation)
+            self.conversation.add_message(assistant_message)
+            
+            if finish_reason == 'tool_calls':
+                # Add reasoning step
+                if assistant_message.reasoning_content:
+                    reasoning_node = self.ui_builder.create_reasoning_node(
+                        assistant_message.reasoning_content, parent_id
+                    )
+                    ui_messages.append(reasoning_node)
+                    yield ui_messages
+                
+                # Create tool call nodes
+                tool_nodes = []
+                for tool_call in assistant_message.tool_calls:
+                    tool_node = self.ui_builder.create_tool_call_node(
+                        tool_call, parent_id
+                    )
+                    tool_nodes.append(tool_node)
+                    ui_messages.append(tool_node)
+                
+                yield ui_messages
+                
+                # Execute tools
+                executed_tools = self.tool_handler.execute_tool_calls(
+                    assistant_message.tool_calls
+                )
+                
+                # Update tool nodes with status
+                for i, tool_call in enumerate(executed_tools):
+                    tool_nodes[i]["metadata"]["status"] = tool_call.status.value
+                
+                yield ui_messages
+                
+                # Add tool results to conversation
+                for tool_call in executed_tools:
+                    self.conversation.add_message(Message(
+                        role=MessageType.TOOL,
+                        content=tool_call.result,
+                        tool_call_id=tool_call.id
+                    ))
+            else:
+                # Add final reasoning step
+                if assistant_message.reasoning_content:
+                    reasoning_node = self.ui_builder.create_reasoning_node(
+                        assistant_message.reasoning_content, parent_id
+                    )
+                    ui_messages.append(reasoning_node)
+                
+                # Add final answer
+                if assistant_message.content:
+                    answer_node = self.ui_builder.create_final_answer_node(
+                        assistant_message.content
+                    )
+                    ui_messages.append(answer_node)
+                
+                yield ui_messages
+                
+                # Mark the thinking node as done
+                time.sleep(2)  # Small delay for visual effect
+                for i in range(len(ui_messages) - 1, -1, -1):
+                    if "metadata" in ui_messages[i] and ui_messages[i]["metadata"]["id"] == parent_id:
+                        ui_messages[i]["metadata"]["status"] = ToolStatus.DONE.value
+                        yield ui_messages
+                        break
+                
+                done = True
+
+# Refactored Gradio function
+def gradio_chat_fn(message, history, conversation_state):
+    chat_flow = ChatFlow()
+    
+    # If we have a conversation state, restore it
+    if conversation_state:
+        # Convert the state back to our Conversation object
+        # This would need proper implementation based on how the state is stored
+        pass
+    
+    # Process the message and yield UI updates
+    for ui_update in chat_flow.process_user_message(message):
+        yield ui_update, chat_flow.conversation
+
+# Initialize the demo
+demo = gr.ChatInterface(
+    gradio_chat_fn,
+    title="Thinking LLM Chat Interface 🤔",
+    type="messages",
+    chatbot=gr.Chatbot(layout="panel", type="messages", min_height=1000),
+    examples=[["Hello there"], [user_query_example_01]],
+    additional_inputs=[gr.State(value=Conversation(messages=[
+        Message(role=MessageType.SYSTEM, content=system_prompt)
+    ]))],
+)
+```
+
+## Key Improvements
+
+1. **Separation of Concerns**: 
+   - `Conversation` class manages the conversation state
+   - `UIMessageBuilder` handles UI message creation
+   - `ToolCallHandler` manages tool execution
+   - `LLMHandler` handles API calls
+   - `ChatFlow` orchestrates the entire process
+
+2. **Type Safety**: Using dataclasses and enums for better type safety and code clarity.
+
+3. **Error Handling**: Added basic error handling for tool calls.
+
+4. **Immutable State**: While the conversation still needs to be mutable, the overall design reduces unnecessary state mutation.
+
+5. **Testability**: Each component can be tested independently.
+
+6. **Extensibility**: It's easier to add new features like conversation persistence, different UI modes, or additional tool types.
+
+This refactoring maintains the same functionality while making the code more maintainable, testable, and extensible. The flow is clearer, and each component has a single responsibility.
+
+
+
+
+
+I see I see. I vaguely remember those software engineering lessons. Can you explain at a higher, architectural level about what you're proposing? Specifically, I want more details on these aspects of your proposal above: OOP (or other) design pattern applied; data model and how inter-domain mapping are handled; (im)mutability and the functional interface; overall conceptual architecture and flow.
+
+
+
+
+    Let me analyze the current code and then propose a refactoring strategy at a higher architectural level. 
+    Current Code Analysis 
+
+    The current implementation has several issues: 
+
+         
+
+        State Management: The code uses a mutable conversation object that gets modified throughout the function, making the flow harder to follow. 
+         
+
+        Mixed Responsibilities: The gradio_chat_fn function handles: 
+             Conversation state management
+             API calls to the LLM
+             Tool execution
+             UI message construction
+             Flow control logic
+             
+         
+
+        Tight Coupling: The UI logic is tightly coupled with the business logic of processing LLM responses. 
+         
+
+        Lack of Abstraction: There's no clear separation between the different domains (LLM API, UI, tool execution). 
+         
+
+    Refactoring Strategy 
+
+    I'll propose an architecture based on several design patterns and principles: 
+
+         Domain-Driven Design (DDD): Separate the code into distinct domains with clear boundaries.
+         Command Query Separation (CQS): Separate operations that change state from those that read state.
+         Observer Pattern: For handling the asynchronous nature of LLM responses and UI updates.
+         Immutable Data Structures: To make state changes more predictable.
+         Functional Interfaces: To reduce side effects and make the code more testable.
+         
+
+    Let me detail each aspect of the proposed architecture. 
+     
+
+ 
+
+
+
+
+# Architectural Refactoring of the LLM Chat Interface
+
+## 1. Design Patterns Applied
+
+### Domain-Driven Design (DDD)
+I'm proposing to separate the code into distinct domains with clear boundaries:
+
+- **LLM Domain**: Handles communication with the language model
+- **Tool Domain**: Manages tool registration and execution
+- **UI Domain**: Handles the presentation layer
+- **Conversation Domain**: Manages the conversation state and flow
+
+### Command Query Separation (CQS)
+- **Commands**: Operations that change state (e.g., adding a message, executing a tool)
+- **Queries**: Operations that read state without modifying it (e.g., getting conversation history)
+
+### Observer Pattern
+The UI components will observe changes in the conversation state, allowing for reactive updates without tightly coupling the UI logic to the business logic.
+
+### State Pattern
+For handling the different states of tool calls (pending, executing, completed, failed).
+
+## 2. Data Model and Inter-Domain Mapping
+
+### Core Data Models
+
+```python
+from dataclasses import dataclass, field
+from typing import List, Dict, Any, Optional, Union
+from enum import Enum
+
+class MessageRole(Enum):
+    SYSTEM = "system"
+    USER = "user"
+    ASSISTANT = "assistant"
+    TOOL = "tool"
+
+class ToolCallStatus(Enum):
+    PENDING = "pending"
+    EXECUTING = "executing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+@dataclass(frozen=True)
+class ToolCall:
+    id: str
+    name: str
+    arguments: Dict[str, Any]
+    status: ToolCallStatus = ToolCallStatus.PENDING
+    result: Optional[str] = None
+    error: Optional[str] = None
+    
+    def with_status(self, status: ToolCallStatus, result: Optional[str] = None, error: Optional[str] = None) -> 'ToolCall':
+        """Create a new ToolCall with updated status"""
+        return ToolCall(
+            id=self.id,
+            name=self.name,
+            arguments=self.arguments,
+            status=status,
+            result=result,
+            error=error
+        )
+
+@dataclass(frozen=True)
+class Message:
+    role: MessageRole
+    content: Optional[str] = None
+    reasoning_content: Optional[str] = None
+    tool_calls: Optional[List[ToolCall]] = None
+    tool_call_id: Optional[str] = None
+    
+    def to_api_format(self) -> Dict[str, Any]:
+        """Convert to format expected by the LLM API"""
+        api_msg = {"role": self.role.value}
+        
+        if self.content is not None:
+            api_msg["content"] = self.content
+            
+        if self.reasoning_content is not None:
+            api_msg["reasoning_content"] = self.reasoning_content
+            
+        if self.tool_calls is not None:
+            api_msg["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "function": {
+                        "name": tc.name,
+                        "arguments": json.dumps(tc.arguments)
+                    }
+                }
+                for tc in self.tool_calls
+            ]
+            
+        if self.tool_call_id is not None:
+            api_msg["tool_call_id"] = self.tool_call_id
+            
+        return api_msg
+
+@dataclass(frozen=True)
+class Conversation:
+    messages: List[Message] = field(default_factory=list)
+    
+    def add_message(self, message: Message) -> 'Conversation':
+        """Create a new Conversation with the message added"""
+        return Conversation(messages=self.messages + [message])
+    
+    def to_api_format(self) -> List[Dict[str, Any]]:
+        """Convert all messages to API format"""
+        return [msg.to_api_format() for msg in self.messages]
+```
+
+### UI Data Models
+
+```python
+@dataclass(frozen=True)
+class UIMessage:
+    role: str
+    content: str
+    metadata: Optional[Dict[str, Any]] = None
+    
+    @staticmethod
+    def thinking_node(id: str) -> 'UIMessage':
+        return UIMessage(
+            role="assistant",
+            content="",
+            metadata={
+                "title": "Thinking...",
+                "status": ToolCallStatus.PENDING.value,
+                "id": id
+            }
+        )
+    
+    @staticmethod
+    def reasoning_node(content: str, parent_id: str) -> 'UIMessage':
+        return UIMessage(
+            role="assistant",
+            content=content,
+            metadata={
+                "title": "",
+                "id": str(uuid.uuid4()),
+                "parent_id": parent_id
+            }
+        )
+    
+    @staticmethod
+    def tool_call_node(tool_call: ToolCall, parent_id: str) -> 'UIMessage':
+        display_title = central_tool_registry.get_tool_call_ui_display(
+            tool_call.name, tool_call.arguments
+        )
+        return UIMessage(
+            role="assistant",
+            content="",
+            metadata={
+                "title": display_title,
+                "status": tool_call.status.value,
+                "id": tool_call.id,
+                "parent_id": parent_id
+            }
+        )
+    
+    @staticmethod
+    def final_answer_node(content: str) -> 'UIMessage':
+        return UIMessage(
+            role="assistant",
+            content=content
+        )
+```
+
+### Inter-Domain Mapping
+
+The mapping between domains is handled by dedicated mapper classes:
+
+```python
+class MessageToUIMessageMapper:
+    @staticmethod
+    def map_message_to_ui_messages(message: Message, parent_id: str) -> List[UIMessage]:
+        """Map a Message to one or more UIMessages"""
+        ui_messages = []
+        
+        if message.reasoning_content:
+            ui_messages.append(UIMessage.reasoning_node(message.reasoning_content, parent_id))
+        
+        if message.tool_calls:
+            for tool_call in message.tool_calls:
+                ui_messages.append(UIMessage.tool_call_node(tool_call, parent_id))
+        
+        if message.content and message.role == MessageRole.ASSISTANT:
+            ui_messages.append(UIMessage.final_answer_node(message.content))
+        
+        return ui_messages
+
+class APIToMessageMapper:
+    @staticmethod
+    def map_api_response_to_message(api_response) -> Message:
+        """Map an API response to a Message"""
+        tool_calls = []
+        if api_response.tool_calls:
+            for tc in api_response.tool_calls:
+                tool_calls.append(ToolCall(
+                    id=tc.id,
+                    name=tc.function.name,
+                    arguments=json.loads(tc.function.arguments)
+                ))
+        
+        return Message(
+            role=MessageRole.ASSISTANT,
+            content=api_response.content,
+            reasoning_content=getattr(api_response, "reasoning_content", None),
+            tool_calls=tool_calls if tool_calls else None
+        )
+```
+
+## 3. Immutability and Functional Interface
+
+### Immutable Data Structures
+All core data structures (`Message`, `Conversation`, `ToolCall`, `UIMessage`) are designed to be immutable using Python's `@dataclass(frozen=True)`. When state changes are needed, new instances are created with updated values.
+
+### Functional Interfaces
+Instead of mutating objects, we use functions that return new objects:
+
+```python
+# Instead of: conversation.add_message(message)
+# We use: new_conversation = conversation.add_message(message)
+
+# Instead of: tool_call.status = ToolCallStatus.COMPLETED
+# We use: updated_tool_call = tool_call.with_status(ToolCallStatus.COMPLETED, result)
+```
+
+### State Management
+The conversation state is managed as a series of immutable snapshots:
+
+```python
+class ConversationManager:
+    def __init__(self, initial_conversation: Conversation = Conversation()):
+        self._conversation = initial_conversation
+        self._observers = []
+    
+    def get_current_state(self) -> Conversation:
+        return self._conversation
+    
+    def add_message(self, message: Message) -> None:
+        self._conversation = self._conversation.add_message(message)
+        self._notify_observers()
+    
+    def update_tool_call(self, tool_call_id: str, status: ToolCallStatus, 
+                        result: Optional[str] = None, error: Optional[str] = None) -> None:
+        updated_messages = []
+        for msg in self._conversation.messages:
+            if msg.tool_calls:
+                updated_tool_calls = []
+                for tc in msg.tool_calls:
+                    if tc.id == tool_call_id:
+                        updated_tool_calls.append(tc.with_status(status, result, error))
+                    else:
+                        updated_tool_calls.append(tc)
+                
+                if updated_tool_calls != msg.tool_calls:
+                    updated_messages.append(Message(
+                        role=msg.role,
+                        content=msg.content,
+                        reasoning_content=msg.reasoning_content,
+                        tool_calls=updated_tool_calls,
+                        tool_call_id=msg.tool_call_id
+                    ))
+                else:
+                    updated_messages.append(msg)
+            else:
+                updated_messages.append(msg)
+        
+        self._conversation = Conversation(messages=updated_messages)
+        self._notify_observers()
+    
+    def _notify_observers(self) -> None:
+        for observer in self._observers:
+            observer(self._conversation)
+    
+    def subscribe(self, observer) -> None:
+        self._observers.append(observer)
+```
+
+## 4. Conceptual Architecture and Flow
+
+### High-Level Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         UI Layer                                │
+│  ┌─────────────────┐    ┌─────────────────────────────────────┐ │
+│  │  Gradio Chat UI │◄──►│       UI Message Builder            │ │
+│  └─────────────────┘    └─────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Application Layer                            │
+│  ┌─────────────────┐    ┌─────────────────────────────────────┐ │
+│  │ Chat Controller │◄──►│     Conversation Manager            │ │
+│  └─────────────────┘    └─────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      Domain Layer                               │
+│  ┌─────────────────┐    ┌─────────────────┐    ┌──────────────┐ │
+│  │   LLM Service   │    │  Tool Service   │    │   Mapper     │ │
+│  └─────────────────┘    └─────────────────┘    └──────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Flow of Control
+
+1. **User Input**: The user sends a message through the Gradio UI.
+2. **Request Handling**: The Chat Controller receives the message and creates a new `Message` object.
+3. **State Update**: The Conversation Manager adds the message to the conversation, creating a new immutable state.
+4. **UI Notification**: The Conversation Manager notifies the UI Message Builder of the state change.
+5. **LLM Call**: The Chat Controller calls the LLM Service with the current conversation state.
+6. **Response Processing**: The LLM Service returns a response, which is mapped to a `Message` object.
+7. **Tool Execution**: If the response contains tool calls, the Tool Service executes them.
+8. **State Updates**: Each tool execution updates the conversation state through the Conversation Manager.
+9. **UI Updates**: Each state change triggers UI updates through the UI Message Builder.
+10. **Final Response**: Once all tools are executed, the final response is displayed to the user.
+
+### Event-Driven Architecture
+
+The architecture follows an event-driven pattern where:
+
+- User inputs trigger events
+- LLM responses trigger events
+- Tool executions trigger events
+- Each event updates the conversation state
+- State changes trigger UI updates
+
+This approach decouples the components and makes the system more extensible and testable.
+
+### Error Handling
+
+Error handling is built into the architecture:
+
+1. **Tool Execution Errors**: Captured in the `ToolCall` object's `error` field.
+2. **API Errors**: Handled by the LLM Service and propagated to the Chat Controller.
+3. **UI Errors**: Displayed to the user through the UI Message Builder.
+
+### Extensibility
+
+The architecture is designed to be extensible:
+
+1. **New Tools**: Can be added to the Tool Service without changing other components.
+2. **New LLMs**: Can be supported by implementing a new LLM Service with the same interface.
+3. **New UI Components**: Can be added by extending the UI Message Builder.
+
+This architectural refactoring maintains the functionality of the original code while making it more maintainable, testable, and extensible. The separation of concerns, immutable data structures, and event-driven flow make the system easier to reason about and modify.
+
+
+
+
+Interesting! So, am I correct in thinking that with this new design, there is a clear pathway to upgrade if we want to make it more like a real chatbot service (gradio is for prototyping)? In that case, the "Application Layer" would be like providing an API, built on top of OpenAI's LLM chat completion API, but it's far from a thin wrapper - instead it built out an entire service with rich functionality. The API this layer expose could in principle allow third party dev to build their own downstream service that may be different from the "official" one. So the API should be flexible. The API would be stateful but still RESTful, perhaps some kind of explicit state machine modelling like the more recent response API proposed by OpenAI. Additionally, an event system should be provided so that dev that wants a more reactive usage pattern instead could subscribe to an event source. The new UI layer will use the same API given to third party dev, maybe SSR modern frontend tech stack. Conversation persistence could be an issue as the LLM API may get interrupted in the middle (because each message may require multiple round trip to the LLM due the ARC usage). Some kind of task engine style thinking?
+
+
+
+
+    The user is asking about extending the architecture to a more production-ready chatbot service. They're asking several key questions: 
+
+         Whether the proposed architecture provides a clear pathway to upgrade from a Gradio prototype to a real service
+         How the Application Layer would work as an API built on top of OpenAI's chat completion API
+         How to design a flexible API for third-party developers
+         How to handle stateful but RESTful API design, possibly with explicit state machine modeling
+         How to implement an event system for reactive usage patterns
+         How a new UI layer could use the same API as third-party developers
+         How to handle conversation persistence, especially with interruptions during multi-round LLM interactions
+         Whether a "task engine" approach would be appropriate
+         
+
+    Let me address each of these points in detail, focusing on the architectural implications and design patterns that would be most appropriate. 
+     
+
+ 
+
+
+
+
+# Extending the Architecture to a Production-Ready Chatbot Service
+
+Yes, you're absolutely correct! The proposed architecture provides a clear pathway to evolve from a Gradio prototype to a production-ready chatbot service. Let me elaborate on how each component would scale and what additional considerations would be needed.
+
+## 1. Application Layer as a Rich API Service
+
+The Application Layer would indeed be much more than a thin wrapper around OpenAI's API. It would provide value-added services such as:
+
+```python
+# Example of a rich API endpoint
+class ChatAPI:
+    def __init__(self, llm_service, tool_service, conversation_manager):
+        self.llm_service = llm_service
+        self.tool_service = tool_service
+        self.conversation_manager = conversation_manager
+        self.event_bus = EventBus()
+    
+    async def create_conversation(self, system_prompt: str, user_id: str) -> str:
+        """Create a new conversation and return its ID"""
+        conversation_id = str(uuid.uuid4())
+        system_message = Message(role=MessageRole.SYSTEM, content=system_prompt)
+        initial_conversation = Conversation(messages=[system_message])
+        
+        await self.conversation_manager.save_conversation(
+            conversation_id, initial_conversation, user_id
+        )
+        
+        return conversation_id
+    
+    async def send_message(self, conversation_id: str, message: str, user_id: str) -> str:
+        """Send a message and return a task ID for tracking"""
+        conversation = await self.conversation_manager.get_conversation(
+            conversation_id, user_id
+        )
+        
+        user_message = Message(role=MessageRole.USER, content=message)
+        updated_conversation = conversation.add_message(user_message)
+        
+        task_id = await self.task_engine.create_task(
+            conversation_id, updated_conversation, user_id
+        )
+        
+        return task_id
+    
+    async def get_task_status(self, task_id: str) -> TaskStatus:
+        """Get the status of a processing task"""
+        return await self.task_engine.get_task_status(task_id)
+    
+    async def subscribe_to_events(self, conversation_id: str, event_types: List[str]) -> str:
+        """Subscribe to conversation events and return a subscription ID"""
+        subscription_id = str(uuid.uuid4())
+        await self.event_bus.subscribe(conversation_id, subscription_id, event_types)
+        return subscription_id
+```
+
+## 2. Stateful but RESTful API Design
+
+To maintain RESTfulness while supporting stateful conversations, we can use a combination of:
+
+1. **Resource-Oriented URLs**: Each conversation is a resource with its own URL
+2. **Task-Based Processing**: Long-running operations are modeled as tasks
+3. **Event Streams**: For real-time updates
+
+```python
+# API endpoint examples
+@app.post("/api/conversations")
+async def create_conversation(request: CreateConversationRequest):
+    # Creates a new conversation resource
+    pass
+
+@app.post("/api/conversations/{conversation_id}/messages")
+async def send_message(conversation_id: str, request: SendMessageRequest):
+    # Adds a message and starts processing
+    # Returns a task ID for tracking
+    pass
+
+@app.get("/api/tasks/{task_id}")
+async def get_task_status(task_id: str):
+    # Returns the status of a processing task
+    pass
+
+@app.get("/api/conversations/{conversation_id}/events")
+async def get_conversation_events(conversation_id: str, subscription_id: str):
+    # Server-sent events endpoint for real-time updates
+    pass
+```
+
+## 3. Explicit State Machine Modeling
+
+Following OpenAI's approach with their response API, we can model the conversation flow as an explicit state machine:
+
+```python
+class ConversationState(Enum):
+    IDLE = "idle"
+    PROCESSING_USER_MESSAGE = "processing_user_message"
+    REASONING = "reasoning"
+    EXECUTING_TOOLS = "executing_tools"
+    GENERATING_RESPONSE = "generating_response"
+    ERROR = "error"
+    COMPLETED = "completed"
+
+class StateTransition:
+    def __init__(self, from_state: ConversationState, to_state: ConversationState, 
+                 condition: Callable, action: Optional[Callable] = None):
+        self.from_state = from_state
+        self.to_state = to_state
+        self.condition = condition
+        self.action = action
+
+class ConversationStateMachine:
+    def __init__(self):
+        self.current_state = ConversationState.IDLE
+        self.transitions = [
+            StateTransition(
+                ConversationState.IDLE,
+                ConversationState.PROCESSING_USER_MESSAGE,
+                lambda: self.has_new_user_message()
+            ),
+            StateTransition(
+                ConversationState.PROCESSING_USER_MESSAGE,
+                ConversationState.REASONING,
+                lambda: self.message_processed()
+            ),
+            StateTransition(
+                ConversationState.REASONING,
+                ConversationState.EXECUTING_TOOLS,
+                lambda: self.has_tool_calls(),
+                self.execute_tools
+            ),
+            StateTransition(
+                ConversationState.EXECUTING_TOOLS,
+                ConversationState.GENERATING_RESPONSE,
+                lambda: self.all_tools_completed()
+            ),
+            StateTransition(
+                ConversationState.GENERATING_RESPONSE,
+                ConversationState.COMPLETED,
+                lambda: self.response_generated()
+            ),
+            StateTransition(
+                ConversationState.COMPLETED,
+                ConversationState.IDLE,
+                lambda: True
+            )
+        ]
+    
+    def transition(self) -> bool:
+        for transition in self.transitions:
+            if transition.from_state == self.current_state and transition.condition():
+                self.current_state = transition.to_state
+                if transition.action:
+                    transition.action()
+                return True
+        return False
+```
+
+## 4. Event System for Reactive Usage Patterns
+
+An event-driven architecture allows for more flexible integration patterns:
+
+```python
+class EventBus:
+    def __init__(self):
+        self.subscriptions = defaultdict(list)
+        self.event_queue = asyncio.Queue()
+    
+    async def publish(self, event_type: str, event_data: Dict[str, Any]):
+        event = {
+            "type": event_type,
+            "data": event_data,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        await self.event_queue.put(event)
+        
+        # Notify subscribers
+        for subscription in self.subscriptions[event_type]:
+            await subscription.notify(event)
+    
+    async def subscribe(self, event_types: List[str], handler: Callable):
+        subscription_id = str(uuid.uuid4())
+        subscription = Subscription(subscription_id, handler)
+        
+        for event_type in event_types:
+            self.subscriptions[event_type].append(subscription)
+        
+        return subscription_id
+    
+    async def unsubscribe(self, subscription_id: str):
+        for event_type, subscriptions in self.subscriptions.items():
+            self.subscriptions[event_type] = [
+                s for s in subscriptions if s.id != subscription_id
+            ]
+
+class Subscription:
+    def __init__(self, subscription_id: str, handler: Callable):
+        self.id = subscription_id
+        self.handler = handler
+    
+    async def notify(self, event: Dict[str, Any]):
+        try:
+            await self.handler(event)
+        except Exception as e:
+            logger.error(f"Error in subscription handler: {e}")
+```
+
+## 5. Task Engine for Handling Long-Running Operations
+
+A task engine is crucial for managing the multi-round interactions with the LLM:
+
+```python
+class TaskStatus(Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+class Task:
+    def __init__(self, task_id: str, conversation_id: str, user_id: str):
+        self.id = task_id
+        self.conversation_id = conversation_id
+        self.user_id = user_id
+        self.status = TaskStatus.PENDING
+        self.result = None
+        self.error = None
+        self.created_at = datetime.utcnow()
+        self.updated_at = datetime.utcnow()
+
+class TaskEngine:
+    def __init__(self, llm_service, tool_service, conversation_manager, event_bus):
+        self.llm_service = llm_service
+        self.tool_service = tool_service
+        self.conversation_manager = conversation_manager
+        self.event_bus = event_bus
+        self.tasks = {}
+        self.task_queue = asyncio.Queue()
+        self.worker_task = asyncio.create_task(self._process_tasks())
+    
+    async def create_task(self, conversation_id: str, conversation: Conversation, user_id: str) -> str:
+        task_id = str(uuid.uuid4())
+        task = Task(task_id, conversation_id, user_id)
+        self.tasks[task_id] = task
+        
+        await self.task_queue.put((task_id, conversation))
+        await self.event_bus.publish("task_created", {"task_id": task_id})
+        
+        return task_id
+    
+    async def get_task_status(self, task_id: str) -> Task:
+        return self.tasks.get(task_id)
+    
+    async def _process_tasks(self):
+        while True:
+            task_id, conversation = await self.task_queue.get()
+            task = self.tasks[task_id]
+            
+            try:
+                task.status = TaskStatus.RUNNING
+                task.updated_at = datetime.utcnow()
+                await self.event_bus.publish("task_started", {"task_id": task_id})
+                
+                # Process the conversation
+                result = await self._process_conversation(conversation)
+                
+                task.result = result
+                task.status = TaskStatus.COMPLETED
+                task.updated_at = datetime.utcnow()
+                await self.event_bus.publish("task_completed", {"task_id": task_id, "result": result})
+                
+            except Exception as e:
+                task.error = str(e)
+                task.status = TaskStatus.FAILED
+                task.updated_at = datetime.utcnow()
+                await self.event_bus.publish("task_failed", {"task_id": task_id, "error": str(e)})
+    
+    async def _process_conversation(self, conversation: Conversation) -> Dict[str, Any]:
+        # This is where the main conversation processing logic goes
+        # It would handle the multi-round interactions with the LLM
+        pass
+```
+
+## 6. Conversation Persistence and Recovery
+
+To handle interruptions during multi-round LLM interactions:
+
+```python
+class ConversationPersistence:
+    def __init__(self, db_client):
+        self.db = db_client
+    
+    async def save_conversation(self, conversation_id: str, conversation: Conversation, user_id: str):
+        # Save the conversation to the database
+        document = {
+            "conversation_id": conversation_id,
+            "user_id": user_id,
+            "messages": [msg.to_dict() for msg in conversation.messages],
+            "updated_at": datetime.utcnow()
+        }
+        await self.db.conversations.update_one(
+            {"conversation_id": conversation_id},
+            {"$set": document},
+            upsert=True
+        )
+    
+    async def get_conversation(self, conversation_id: str, user_id: str) -> Conversation:
+        # Retrieve the conversation from the database
+        doc = await self.db.conversations.find_one({
+            "conversation_id": conversation_id,
+            "user_id": user_id
+        })
+        
+        if not doc:
+            raise ValueError("Conversation not found")
+        
+        messages = [Message.from_dict(msg) for msg in doc["messages"]]
+        return Conversation(messages=messages)
+    
+    async def save_task_state(self, task_id: str, state: Dict[str, Any]):
+        # Save the state of a processing task
+        document = {
+            "task_id": task_id,
+            "state": state,
+            "updated_at": datetime.utcnow()
+        }
+        await self.db.task_states.update_one(
+            {"task_id": task_id},
+            {"$set": document},
+            upsert=True
+        )
+    
+    async def get_task_state(self, task_id: str) -> Dict[str, Any]:
+        # Retrieve the state of a processing task
+        doc = await self.db.task_states.find_one({"task_id": task_id})
+        
+        if not doc:
+            return {}
+        
+        return doc["state"]
+    
+    async def recover_interrupted_tasks(self):
+        # Find tasks that were interrupted and restart them
+        interrupted_tasks = await self.db.task_states.find({
+            "state.status": TaskStatus.RUNNING.value,
+            "updated_at": {"$lt": datetime.utcnow() - timedelta(minutes=5)}
+        }).to_list(length=None)
+        
+        for task_doc in interrupted_tasks:
+            task_id = task_doc["task_id"]
+            await self.event_bus.publish("task_recovery", {"task_id": task_id})
+```
+
+## 7. Modern Frontend Integration
+
+For a modern frontend, you could use server-sent events (SSE) or WebSockets to stream updates:
+
+```python
+@app.get("/api/conversations/{conversation_id}/events")
+async def get_conversation_events(conversation_id: str, subscription_id: str):
+    async def event_stream():
+        subscription = await event_bus.get_subscription(subscription_id)
+        async for event in subscription:
+            yield f"data: {json.dumps(event)}\n\n"
+    
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+```
+
+And in the frontend (using React as an example):
+
+```javascript
+function useConversationEvents(conversationId) {
+  const [events, setEvents] = useState([]);
+  const [subscriptionId, setSubscriptionId] = useState(null);
+  
+  useEffect(() => {
+    // Subscribe to events
+    fetch(`/api/conversations/${conversationId}/subscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ eventTypes: ['message_added', 'tool_executed', 'response_generated'] })
+    })
+    .then(res => res.json())
+    .then(data => setSubscriptionId(data.subscriptionId));
+    
+    return () => {
+      // Unsubscribe when component unmounts
+      if (subscriptionId) {
+        fetch(`/api/subscriptions/${subscriptionId}`, { method: 'DELETE' });
+      }
+    };
+  }, [conversationId]);
+  
+  useEffect(() => {
+    if (!subscriptionId) return;
+    
+    // Set up event stream
+    const eventSource = new EventSource(
+      `/api/conversations/${conversationId}/events?subscription_id=${subscriptionId}`
+    );
+    
+    eventSource.onmessage = (event) => {
+      const eventData = JSON.parse(event.data);
+      setEvents(prevEvents => [...prevEvents, eventData]);
+    };
+    
+    return () => {
+      eventSource.close();
+    };
+  }, [conversationId, subscriptionId]);
+  
+  return events;
+}
+```
+
+## 8. Putting It All Together
+
+The complete architecture would look like this:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Frontend Layer                         │
+│  ┌─────────────────┐    ┌─────────────────────────────────────┐ │
+│  │  React/Vue App  │◄──►│      Event Stream Client            │ │
+│  └─────────────────┘    └─────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                         API Gateway                              │
+│  ┌─────────────────┐    ┌─────────────────────────────────────┐ │
+│  │   REST API      │◄──►│      WebSocket/SSE Server           │ │
+│  └─────────────────┘    └─────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Application Layer                            │
+│  ┌─────────────────┐    ┌─────────────────────────────────────┐ │
+│  │ Chat Controller  │◄──►│         Task Engine                 │ │
+│  │                  │    │                                     │ │
+│  │                  │    │  ┌─────────────────────────────────┐ │ │
+│  │                  │    │  │   State Machine                 │ │ │
+│  │                  │    │  └─────────────────────────────────┘ │ │
+│  └─────────────────┘    └─────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      Infrastructure Layer                       │
+│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────┐ │
+│  │   Event Bus     │    │ Conversation    │    │   Task      │ │
+│  │                 │    │ Persistence     │    │ Persistence │ │
+│  └─────────────────┘    └─────────────────┘    └─────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      Domain Layer                               │
+│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────┐ │
+│  │   LLM Service   │    │  Tool Service   │    │   Mapper    │ │
+│  └─────────────────┘    └─────────────────┘    └─────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+This architecture provides:
+
+1. **Scalability**: Each component can be scaled independently
+2. **Flexibility**: Third-party developers can use the same API as the official UI
+3. **Resilience**: The task engine and persistence layer handle interruptions gracefully
+4. **Reactivity**: The event system enables real-time updates without polling
+5. **State Management**: The explicit state machine makes the conversation flow predictable and debuggable
+
+The key insight is that by separating concerns and using explicit state management, we can create a system that is both powerful for developers and reliable for end users, even when dealing with the complex multi-round interactions required by ARC (Agency, Reasoning, and Tool Calling) capabilities.
+
+
