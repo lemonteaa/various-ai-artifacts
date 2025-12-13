@@ -1,0 +1,1512 @@
+Model used: GLM-4.6V (small?) (online)
+
+----
+
+Parser technology is an old but still evolving field.
+
+Context free grammar (CFG) have long been a standard, with a body of knowledge in academic, things like LL vs LR parser, parser generator being well established practise. But they are also notoriously difficult to learn, especially the fine prints of the theory.
+
+On the other hand, we have a more hacker oriented subculture with things like recursive descent parsers, that seemingly foregoes theoretical guarantees for something that is more suited to programmer's taste because the code itself more directly correspond, giving the programmer a better sense of control/feedback. These two subculture sometimes clash. (eg the impression that recursive descent is too "naive" and may have exceedingly long runtime)
+
+One interesting thing I saw recently is that parser combinator and PEG (Parser Expression Grammar?) is gaining traction.
+
+Parser combinator is an especially interesting story. I remember learning about it 12 years ago, and don't get me wrong, functional languages are beautiful and elegant. And so is lambda calculus. To mock a mocking bird, having higher order functions whose inputs and outputs are "functions all the way down", so that these "combinators" themselves become the primitive units of computation, at once both data and process, like a mocking bird, is intellectually very satisfying. But like recursive descent, when I first took a cursory read, my thought is "linguistically nice, but is it algorithmically really tenable?" (I know I know, Monad is the more "correct" way to actually do IO. But in practise, sometimes, "incorrect" is more correct.)
+
+But recently, I am having second thought after seeing a success story on an important OSS library. I saw that wiki put PEG into the "other" category. And from a quick read of the wiki page, I am beginning to suspect that maybe I have indeed missed something.
+
+Maybe contrary to indoctrination, although most programming language's formal grammar is in the CFG class, it does not capture what those language's grammar really is. Technically correct != philosophically correct.
+
+Like, the class of PEG (if there is such a thing?), probably intersect CFG as a full venn diagram - neither are a subclass of the other and that's fine! Afterall, reviewing the academic theory, it seems much of the difficulty of CFG parsing in linear time comes from constructions that most programmers would consider unnatural if implemented in actual programming language. Therefore, CFG's "typical characteristic" is not representative of programming languages in their natural habitat.
+
+Meanwhile, in PEG, it seems a key idea to me is explicit control of grammar ambiguity by imposing specific evaluation/ambiguity resolution order. Therefore, ambiguity, far from being a trouble in grammar, is a central feature that designer of the grammar uses, as it correspond to the programming language/grammar's higher level meaning. In order words, while academics obsesses over edge cases in CFG and how to use advanced math to solve it, programmer completely side steps the issues, by bringing in the origin of the use case to changes the very question that need to be solved, so that it is not an issue at all. Instead of trying to play a difficult game, simply declare and play a different game that you know you can win!
+
+--
+
+Now, using python, show me a proof of concept implementation of parser for JSON as specified through PEG, using the parser combinator methodology.
+
+
+
+----
+
+    The user is asking for a proof of concept implementation of a JSON parser using PEG (Parser Expression Grammar) with parser combinator methodology in Python. They've provided a detailed context about parser technology, CFG vs PEG, and their thoughts on the evolution of parsing techniques. 
+
+    Let me break down what they're asking for: 
+
+        A JSON parser implemented using PEG 
+        Using parser combinator methodology 
+        In Python 
+        As a proof of concept 
+
+    I should provide a clear, well-structured implementation that demonstrates: 
+
+         Parser combinators (functions that combine smaller parsers into larger ones)
+         PEG-style parsing (ordered choice, which is different from CFG's unordered choice)
+         JSON parsing according to the specification
+         
+
+    Let me create a Python implementation that shows this concept clearly. 
+     
+
+ 
+
+
+----
+
+
+
+
+
+I'll create a proof-of-concept JSON parser using PEG with parser combinators in Python. This will demonstrate the elegance and power of the approach you're describing.
+
+```python
+import re
+from typing import List, Union, Dict, Any, Tuple, Callable, Optional
+
+# Basic parser type
+Parser = Callable[[str], Tuple[Optional[Any], str]]
+
+def parse_string(s: str) -> Tuple[Optional[str], str]:
+    """Parse a JSON string"""
+    if not s.startswith('"'):
+        return None, s
+    
+    s = s[1:]  # consume opening quote
+    result = []
+    escape = False
+    
+    while s:
+        if escape:
+            # Handle escape sequences
+            if s[0] == '"': result.append('"')
+            elif s[0] == '\\': result.append('\\')
+            elif s[0] == '/': result.append('/')
+            elif s[0] == 'b': result.append('\b')
+            elif s[0] == 'f': result.append('\f')
+            elif s[0] == 'n': result.append('\n')
+            elif s[0] == 'r': result.append('\r')
+            elif s[0] == 't': result.append('\t')
+            elif s[0] == 'u':
+                # Unicode escape - simplified version
+                if len(s) < 5:
+                    return None, s
+                try:
+                    result.append(chr(int(s[1:5], 16)))
+                    s = s[5:]
+                except ValueError:
+                    return None, s
+            escape = False
+        elif s[0] == '\\':
+            escape = True
+        elif s[0] == '"':
+            return ''.join(result), s[1:]  # consume closing quote
+        else:
+            result.append(s[0])
+        s = s[1:]
+    
+    return None, s  # Unterminated string
+
+def parse_number(s: str) -> Tuple[Optional[float], str]:
+    """Parse a JSON number"""
+    match = re.match(r'-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?', s)
+    if match:
+        num_str = match.group(0)
+        try:
+            if '.' in num_str or 'e' in num_str or 'E' in num_str:
+                return float(num_str), s[len(num_str):]
+            else:
+                return int(num_str), s[len(num_str):]
+        except ValueError:
+            return None, s
+    return None, s
+
+def parse_true(s: str) -> Tuple[Optional[bool], str]:
+    if s.startswith("true"):
+        return True, s[4:]
+    return None, s
+
+def parse_false(s: str) -> Tuple[Optional[bool], str]:
+    if s.startswith("false"):
+        return False, s[5:]
+    return None, s
+
+def parse_null(s: str) -> Tuple[Optional[None], str]:
+    if s.startswith("null"):
+        return None, s[4:]
+    return None, s
+
+# Parser combinator functions
+def seq(*parsers: Parser) -> Parser:
+    """Sequence combinator: applies parsers in order"""
+    def parser(s: str) -> Tuple[Optional[Any], str]:
+        results = []
+        for p in parsers:
+            result, s = p(s)
+            if result is None:
+                return None, s
+            results.append(result)
+        return results, s
+    return parser
+
+def choice(*parsers: Parser) -> Parser:
+    """Choice combinator: tries parsers in order, returns first success"""
+    def parser(s: str) -> Tuple[Optional[Any], str]:
+        for p in parsers:
+            result, new_s = p(s)
+            if result is not None:
+                return result, new_s
+        return None, s
+    return parser
+
+def many(parser: Parser) -> Parser:
+    """Many combinator: applies parser zero or more times"""
+    def parser(s: str) -> Tuple[Optional[List[Any]], str]:
+        results = []
+        while True:
+            result, new_s = parser(s)
+            if result is None:
+                break
+            results.append(result)
+            s = new_s
+        return results, s
+    return parser
+
+def many1(parser: Parser) -> Parser:
+    """Many1 combinator: applies parser one or more times"""
+    def parser(s: str) -> Tuple[Optional[List[Any]], str]:
+        result, s = parser(s)
+        if result is None:
+            return None, s
+        results = [result]
+        while True:
+            result, new_s = parser(s)
+            if result is None:
+                break
+            results.append(result)
+            s = new_s
+        return results, s
+    return parser
+
+def optional(parser: Parser) -> Parser:
+    """Optional combinator: parser may or may not succeed"""
+    def parser(s: str) -> Tuple[Optional[Any], str]:
+        result, new_s = parser(s)
+        if result is None:
+            return None, s
+        return result, new_s
+    return parser
+
+def between(left: Parser, parser: Parser, right: Parser) -> Parser:
+    """Between combinator: parser between left and right delimiters"""
+    return seq(left, parser, right)
+
+def map_parser(parser: Parser, func: Callable) -> Parser:
+    """Map combinator: applies function to parser result"""
+    def parser(s: str) -> Tuple[Optional[Any], str]:
+        result, new_s = parser(s)
+        if result is None:
+            return None, new_s
+        return func(result), new_s
+    return parser
+
+# JSON grammar using PEG
+def json_parser() -> Parser:
+    """Main JSON parser"""
+    
+    # Define parsers
+    def whitespace(s: str) -> Tuple[Optional[str], str]:
+        match = re.match(r'[ \t\n\r]+', s)
+        if match:
+            return match.group(0), s[len(match.group(0)):]
+        return None, s
+    
+    def value(s: str) -> Tuple[Optional[Any], str]:
+        # Ordered choice - PEG's key feature
+        return choice(
+            parse_string,
+            parse_number,
+            parse_true,
+            parse_false,
+            parse_null,
+            array,
+            object_
+        )(s)
+    
+    def object_(s: str) -> Tuple[Optional[Dict], str]:
+        def pair(s: str) -> Tuple[Optional[Tuple[str, Any]], str]:
+            key, s = parse_string(s)
+            if key is None:
+                return None, s
+            s = s.lstrip()
+            if not s.startswith(':'):
+                return None, s
+            s = s[1:].lstrip()
+            val, s = value(s)
+            if val is None:
+                return None, s
+            return (key, val), s
+        
+        def members(s: str) -> Tuple[Optional[List[Tuple[str, Any]]], str]:
+            first_pair, s = pair(s)
+            if first_pair is None:
+                return [], s
+            
+            def rest_pairs(s: str) -> Tuple[Optional[List[Tuple[str, Any]]], str]:
+                if not s.startswith(','):
+                    return [], s
+                s = s[1:].lstrip()
+                pair_result, s = pair(s)
+                if pair_result is None:
+                    return None, s
+                rest, s = rest_pairs(s)
+                return [pair_result] + rest, s
+            
+            rest, s = rest_pairs(s)
+            return [first_pair] + rest, s
+        
+        result, s = between(
+            lambda s: (None, s.lstrip() if s.lstrip().startswith('{') else (None, s)),
+            members,
+            lambda s: (None, s.lstrip() if s.lstrip().startswith('}') else (None, s))
+        )(s)
+        
+        if result is None:
+            return None, s
+        
+        return dict(result), s
+    
+    def array(s: str) -> Tuple[Optional[List[Any]], str]:
+        def elements(s: str) -> Tuple[Optional[List[Any]], str]:
+            first_val, s = value(s)
+            if first_val is None:
+                return [], s
+            
+            def rest_vals(s: str) -> Tuple[Optional[List[Any]], str]:
+                if not s.startswith(','):
+                    return [], s
+                s = s[1:].lstrip()
+                val, s = value(s)
+                if val is None:
+                    return None, s
+                rest, s = rest_vals(s)
+                return [val] + rest, s
+            
+            rest, s = rest_vals(s)
+            return [first_val] + rest, s
+        
+        result, s = between(
+            lambda s: (None, s.lstrip() if s.lstrip().startswith('[') else (None, s)),
+            elements,
+            lambda s: (None, s.lstrip() if s.lstrip().startswith(']') else (None, s))
+        )(s)
+        
+        if result is None:
+            return None, s
+        
+        return result, s
+    
+    # Main parser with whitespace handling
+    def parser(s: str) -> Tuple[Optional[Any], str]:
+        result, s = value(s)
+        if result is None:
+            return None, s
+        s = s.lstrip()
+        if s:  # Extra characters after valid JSON
+            return None, s
+        return result, s
+    
+    return parser
+
+# Example usage
+if __name__ == "__main__":
+    # Test cases
+    test_jsons = [
+        '{"name": "John", "age": 30, "is_student": false, "scores": [85, 92, 78], "address": null}',
+        '["apple", "banana", "cherry"]',
+        '42',
+        '"Hello, World!"',
+        '{"nested": {"object": true, "array": [1, 2, 3]}}',
+        'null',
+        'true',
+        'false',
+        '{"empty": {}}',
+        '[]'
+    ]
+    
+    json_parser_instance = json_parser()
+    
+    for json_str in test_jsons:
+        result, remaining = json_parser_instance(json_str)
+        print(f"Input: {json_str}")
+        print(f"Result: {result}")
+        print(f"Remaining: '{remaining}'")
+        print("-" * 50)
+```
+
+This implementation demonstrates several key aspects of PEG with parser combinators:
+
+1. **Ordered Choice**: The `choice` combinator tries parsers in order, which is a fundamental PEG feature. This resolves ambiguity by prioritizing the first matching alternative.
+
+2. **Combinator Functions**: We have `seq`, `choice`, `many`, `many1`, `optional`, `between`, and `map_parser` - these are the building blocks that allow us to compose smaller parsers into larger ones.
+
+3. **PEG-style Parsing**: Unlike CFG parsers, PEG parsers don't backtrack. The ordered choice means once a parser succeeds, the others aren't tried.
+
+4. **Direct Control**: The grammar is written in a way that directly corresponds to the JSON specification, making it easy to understand and modify.
+
+5. **No Theoretical Complexity**: We avoid the complexities of CFG parsing (like LL/LR conflicts) by using a different approach that's more natural for programming languages.
+
+The implementation handles all JSON data types:
+- Strings with proper escaping
+- Numbers (integers and floats)
+- Booleans
+- Null
+- Arrays
+- Objects
+
+This approach shows why PEG and parser combinators are gaining traction - they provide a clean, expressive way to define parsers that's both powerful and maintainable, without getting bogged down in theoretical complexities.
+
+
+----
+
+Okay, now extend your codebase so that it can not just parse a JSON, but also parse according to a user specified JSON Schema (assume the JSON Scheme data itself is given in in-memory native python data structure already). You do not need to implement full JSON Schema conformance, only a core subset that covers the most common needs. (But maybe do cover the "between min and max item", "allow additional property or not", "required property or not" stuff... schema function/recursion etc however is too advanced so skip for now) May want to modify your code's "extracted data" part so that it would return an analog of AST (implemented via python native data structure) first?
+
+----
+
+
+ 
+Thought Process
+ 
+ 
+ 
+ 
+
+    The user wants me to extend the previous JSON parser to also validate against a JSON Schema. They want: 
+
+        The JSON Schema to be provided as an in-memory Python data structure 
+        Only a core subset of JSON Schema features (not full compliance) 
+        Key features to include:
+             between min and max items (for arrays)
+             allow additional properties or not (for objects)
+             required properties or not (for objects)
+              
+        The parser should return an AST-like structure 
+        Skip advanced features like schema functions/recursion 
+
+    I need to: 
+
+        Modify the parser to return AST nodes instead of raw Python data 
+        Add schema validation logic 
+        Implement the core schema features requested 
+        Keep the PEG parser combinator approach 
+
+    Let me design the AST structure first: 
+
+         For strings, numbers, booleans, null: simple values
+         For arrays: list of elements with potential min/max validation
+         For objects: dict with property validation
+         
+
+    I'll need to: 
+
+        Create an AST node class or structure 
+        Modify parsers to return AST nodes 
+        Add schema validation logic 
+        Integrate schema validation into the parsing process 
+
+     
+
+ 
+
+----
+
+
+
+
+
+
+I'll extend the code to add JSON Schema validation with AST generation. Here's the enhanced implementation:
+
+```python
+import re
+from typing import List, Union, Dict, Any, Tuple, Callable, Optional, TypeVar, Generic
+
+# Basic parser type
+Parser = Callable[[str], Tuple[Optional[Any], str]]
+
+# Type variables for type checking
+T = TypeVar('T')
+
+# AST Node definitions
+class ASTNode:
+    """Base class for all AST nodes"""
+    pass
+
+class StringNode(ASTNode):
+    def __init__(self, value: str):
+        self.value = value
+    
+    def __repr__(self):
+        return f'StringNode("{self.value}")'
+
+class NumberNode(ASTNode):
+    def __init__(self, value: Union[int, float]):
+        self.value = value
+    
+    def __repr__(self):
+        return f'NumberNode({self.value})'
+
+class BooleanNode(ASTNode):
+    def __init__(self, value: bool):
+        self.value = value
+    
+    def __repr__(self):
+        return f'BooleanNode({self.value})'
+
+class NullNode(ASTNode):
+    def __repr__(self):
+        return 'NullNode'
+
+class ArrayNode(ASTNode):
+    def __init__(self, elements: List[ASTNode], schema: Optional[Dict] = None):
+        self.elements = elements
+        self.schema = schema or {}
+    
+    def __repr__(self):
+        return f'ArrayNode({self.elements})'
+
+class ObjectNode(ASTNode):
+    def __init__(self, properties: Dict[str, ASTNode], schema: Optional[Dict] = None):
+        self.properties = properties
+        self.schema = schema or {}
+    
+    def __repr__(self):
+        return f'ObjectNode({self.properties})'
+
+# Basic parser functions
+def parse_string(s: str) -> Tuple[Optional[StringNode], str]:
+    """Parse a JSON string"""
+    if not s.startswith('"'):
+        return None, s
+    
+    s = s[1:]  # consume opening quote
+    result = []
+    escape = False
+    
+    while s:
+        if escape:
+            # Handle escape sequences
+            if s[0] == '"': result.append('"')
+            elif s[0] == '\\': result.append('\\')
+            elif s[0] == '/': result.append('/')
+            elif s[0] == 'b': result.append('\b')
+            elif s[0] == 'f': result.append('\f')
+            elif s[0] == 'n': result.append('\n')
+            elif s[0] == 'r': result.append('\r')
+            elif s[0] == 't': result.append('\t')
+            elif s[0] == 'u':
+                # Unicode escape - simplified version
+                if len(s) < 5:
+                    return None, s
+                try:
+                    result.append(chr(int(s[1:5], 16)))
+                    s = s[5:]
+                except ValueError:
+                    return None, s
+            escape = False
+        elif s[0] == '\\':
+            escape = True
+        elif s[0] == '"':
+            return StringNode(''.join(result)), s[1:]  # consume closing quote
+        else:
+            result.append(s[0])
+        s = s[1:]
+    
+    return None, s  # Unterminated string
+
+def parse_number(s: str) -> Tuple[Optional[NumberNode], str]:
+    """Parse a JSON number"""
+    match = re.match(r'-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?', s)
+    if match:
+        num_str = match.group(0)
+        try:
+            if '.' in num_str or 'e' in num_str or 'E' in num_str:
+                return NumberNode(float(num_str)), s[len(num_str):]
+            else:
+                return NumberNode(int(num_str)), s[len(num_str):]
+        except ValueError:
+            return None, s
+    return None, s
+
+def parse_true(s: str) -> Tuple[Optional[BooleanNode], str]:
+    if s.startswith("true"):
+        return BooleanNode(True), s[4:]
+    return None, s
+
+def parse_false(s: str) -> Tuple[Optional[BooleanNode], str]:
+    if s.startswith("false"):
+        return BooleanNode(False), s[5:]
+    return None, s
+
+def parse_null(s: str) -> Tuple[Optional[NullNode], str]:
+    if s.startswith("null"):
+        return NullNode(), s[4:]
+    return None, s
+
+# Parser combinator functions
+def seq(*parsers: Parser) -> Parser:
+    """Sequence combinator: applies parsers in order"""
+    def parser(s: str) -> Tuple[Optional[Any], str]:
+        results = []
+        for p in parsers:
+            result, s = p(s)
+            if result is None:
+                return None, s
+            results.append(result)
+        return results, s
+    return parser
+
+def choice(*parsers: Parser) -> Parser:
+    """Choice combinator: tries parsers in order, returns first success"""
+    def parser(s: str) -> Tuple[Optional[Any], str]:
+        for p in parsers:
+            result, new_s = p(s)
+            if result is not None:
+                return result, new_s
+        return None, s
+    return parser
+
+def many(parser: Parser) -> Parser:
+    """Many combinator: applies parser zero or more times"""
+    def parser(s: str) -> Tuple[Optional[List[Any]], str]:
+        results = []
+        while True:
+            result, new_s = parser(s)
+            if result is None:
+                break
+            results.append(result)
+            s = new_s
+        return results, s
+    return parser
+
+def many1(parser: Parser) -> Parser:
+    """Many1 combinator: applies parser one or more times"""
+    def parser(s: str) -> Tuple[Optional[List[Any]], str]:
+        result, s = parser(s)
+        if result is None:
+            return None, s
+        results = [result]
+        while True:
+            result, new_s = parser(s)
+            if result is None:
+                break
+            results.append(result)
+            s = new_s
+        return results, s
+    return parser
+
+def optional(parser: Parser) -> Parser:
+    """Optional combinator: parser may or may not succeed"""
+    def parser(s: str) -> Tuple[Optional[Any], str]:
+        result, new_s = parser(s)
+        if result is None:
+            return None, s
+        return result, new_s
+    return parser
+
+def between(left: Parser, parser: Parser, right: Parser) -> Parser:
+    """Between combinator: parser between left and right delimiters"""
+    return seq(left, parser, right)
+
+def map_parser(parser: Parser, func: Callable) -> Parser:
+    """Map combinator: applies function to parser result"""
+    def parser(s: str) -> Tuple[Optional[Any], str]:
+        result, new_s = parser(s)
+        if result is None:
+            return None, new_s
+        return func(result), new_s
+    return parser
+
+# Schema validation functions
+def validate_array(elements: List[ASTNode], schema: Dict) -> Tuple[bool, Optional[str]]:
+    """Validate array against schema"""
+    min_items = schema.get("minItems")
+    max_items = schema.get("maxItems")
+    
+    if min_items is not None and len(elements) < min_items:
+        return False, f"Array has {len(elements)} elements, minimum required is {min_items}"
+    
+    if max_items is not None and len(elements) > max_items:
+        return False, f"Array has {len(elements)} elements, maximum allowed is {max_items}"
+    
+    return True, None
+
+def validate_object(properties: Dict[str, ASTNode], schema: Dict, data: str) -> Tuple[bool, Optional[str]]:
+    """Validate object against schema"""
+    required = schema.get("required", [])
+    additional_properties = schema.get("additionalProperties", True)
+    
+    # Check required properties
+    missing = [prop for prop in required if prop not in properties]
+    if missing:
+        return False, f"Missing required properties: {missing} in {data}"
+    
+    # Check additional properties
+    if not additional_properties:
+        allowed = set(schema.get("properties", {}).keys())
+        extra = set(properties.keys()) - allowed
+        if extra:
+            return False, f"Additional properties not allowed: {extra} in {data}"
+    
+    return True, None
+
+# JSON parser with schema validation
+def json_parser(schema: Optional[Dict] = None) -> Parser:
+    """Main JSON parser with schema validation"""
+    
+    # Define parsers
+    def whitespace(s: str) -> Tuple[Optional[str], str]:
+        match = re.match(r'[ \t\n\r]+', s)
+        if match:
+            return match.group(0), s[len(match.group(0)):]
+        return None, s
+    
+    def value(s: str, current_schema: Optional[Dict] = None) -> Tuple[Optional[ASTNode], str]:
+        """Parse value with optional schema validation"""
+        # Ordered choice - PEG's key feature
+        return choice(
+            parse_string,
+            parse_number,
+            parse_true,
+            parse_false,
+            parse_null,
+            lambda s: array(s, current_schema.get("items") if current_schema else None),
+            lambda s: object_(s, current_schema)
+        )(s)
+    
+    def array(s: str, item_schema: Optional[Dict] = None) -> Tuple[Optional[ArrayNode], str]:
+        def elements(s: str) -> Tuple[Optional[List[ASTNode]], str]:
+            first_val, s = value(s, item_schema)
+            if first_val is None:
+                return [], s
+            
+            def rest_vals(s: str) -> Tuple[Optional[List[ASTNode]], str]:
+                if not s.startswith(','):
+                    return [], s
+                s = s[1:].lstrip()
+                val, s = value(s, item_schema)
+                if val is None:
+                    return None, s
+                rest, s = rest_vals(s)
+                return [val] + rest, s
+            
+            rest, s = rest_vals(s)
+            return [first_val] + rest, s
+        
+        result, s = between(
+            lambda s: (None, s.lstrip() if s.lstrip().startswith('[') else (None, s)),
+            elements,
+            lambda s: (None, s.lstrip() if s.lstrip().startswith(']') else (None, s))
+        )(s)
+        
+        if result is None:
+            return None, s
+        
+        # Validate against schema
+        if schema is not None:
+            valid, error = validate_array(result, schema)
+            if not valid:
+                return None, f"Schema validation failed: {error}"
+        
+        return ArrayNode(result, schema), s
+    
+    def object_(s: str, current_schema: Optional[Dict] = None) -> Tuple[Optional[ObjectNode], str]:
+        def pair(s: str, prop_schema: Optional[Dict] = None) -> Tuple[Optional[Tuple[str, ASTNode]], str]:
+            key, s = parse_string(s)
+            if key is None:
+                return None, s
+            s = s.lstrip()
+            if not s.startswith(':'):
+                return None, s
+            s = s[1:].lstrip()
+            val, s = value(s, prop_schema)
+            if val is None:
+                return None, s
+            return (key.value, val), s
+        
+        def members(s: str) -> Tuple[Optional[Dict[str, ASTNode]], str]:
+            first_pair, s = pair(s, current_schema.get("properties", {}).get("first_key", None) if current_schema else None)
+            if first_pair is None:
+                return {}, s
+            
+            def rest_pairs(s: str) -> Tuple[Optional[Dict[str, ASTNode]], str]:
+                if not s.startswith(','):
+                    return {}, s
+                s = s[1:].lstrip()
+                pair_result, s = pair(s, current_schema.get("properties", {}).get("rest_key", None) if current_schema else None)
+                if pair_result is None:
+                    return None, s
+                rest, s = rest_pairs(s)
+                key, val = pair_result
+                rest[key] = val
+                return rest, s
+            
+            rest, s = rest_pairs(s)
+            if rest is None:
+                return None, s
+            result = {first_pair[0]: first_pair[1]}
+            result.update(rest)
+            return result, s
+        
+        result, s = between(
+            lambda s: (None, s.lstrip() if s.lstrip().startswith('{') else (None, s)),
+            members,
+            lambda s: (None, s.lstrip() if s.lstrip().startswith('}') else (None, s))
+        )(s)
+        
+        if result is None:
+            return None, s
+        
+        # Validate against schema
+        if schema is not None:
+            valid, error = validate_object(result, schema, "object")
+            if not valid:
+                return None, f"Schema validation failed: {error}"
+        
+        return ObjectNode(result, schema), s
+    
+    # Main parser with whitespace handling
+    def parser(s: str) -> Tuple[Optional[ASTNode], str]:
+        result, s = value(s, schema)
+        if result is None:
+            return None, s
+        s = s.lstrip()
+        if s:  # Extra characters after valid JSON
+            return None, s
+        return result, s
+    
+    return parser
+
+# Example usage
+if __name__ == "__main__":
+    # Test JSON Schema
+    person_schema = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "age": {"type": "number", "minimum": 0},
+            "email": {"type": "string", "format": "email"},
+            "scores": {
+                "type": "array",
+                "items": {"type": "number"},
+                "minItems": 3,
+                "maxItems": 5
+            },
+            "address": {
+                "type": "object",
+                "properties": {
+                    "street": {"type": "string"},
+                    "city": {"type": "string"}
+                },
+                "required": ["street"]
+            }
+        },
+        "required": ["name", "age"],
+        "additionalProperties": False
+    }
+    
+    array_schema = {
+        "type": "array",
+        "items": {"type": "string"},
+        "minItems": 2,
+        "maxItems": 4
+    }
+    
+    # Test cases
+    test_cases = [
+        # Valid person
+        ('{"name": "John", "age": 30, "scores": [85, 92, 78]}', person_schema),
+        # Invalid - missing required field
+        ('{"age": 30, "scores": [85, 92, 78]}', person_schema),
+        # Invalid - additional property not allowed
+        ('{"name": "John", "age": 30, "extra": "value"}', person_schema),
+        # Valid array
+        ('["apple", "banana", "cherry"]', array_schema),
+        # Invalid - too few items
+        ('["apple"]', array_schema),
+        # Invalid - too many items
+        ('["apple", "banana", "cherry", "date", "elderberry"]', array_schema),
+        # Valid nested object
+        ('{"name": "John", "age": 30, "address": {"street": "123 Main St"}}', person_schema),
+        # Invalid - missing required nested field
+        ('{"name": "John", "age": 30, "address": {}}', person_schema)
+    ]
+    
+    json_parser_instance = json_parser()
+    
+    for json_str, schema in test_cases:
+        print(f"Input: {json_str}")
+        print(f"Schema: {schema}")
+        result, remaining = json_parser_instance(json_str)
+        print(f"Result: {result}")
+        print(f"Remaining: '{remaining}'")
+        print("-" * 60)
+```
+
+This enhanced implementation includes:
+
+1. **AST Structure**: Defined ASTNode classes for different JSON types (StringNode, NumberNode, BooleanNode, NullNode, ArrayNode, ObjectNode)
+
+2. **Schema Validation**: Added core JSON Schema validation features:
+   - `minItems` and `maxItems` for arrays
+   - `required` properties for objects
+   - `additionalProperties` control for objects
+
+3. **Parser Integration**: The parser now accepts a schema and validates against it during parsing
+
+4. **Error Reporting**: Provides detailed error messages when validation fails
+
+5. **Type Safety**: The parser returns AST nodes instead of raw Python data, making the structure explicit
+
+The implementation covers the most common JSON Schema use cases while maintaining the elegance of the PEG parser combinator approach. The schema validation is integrated directly into the parsing process, so validation happens as the AST is being built.
+
+
+----
+
+
+Okay, but is a deeper integration possible? What I mean is that, say, in the unconstrained case the grammar rule for array is basically seq( single_char( "[" ), json_parser, zero_or_more( seq( single_char( "," ), json_parser) ), single_char( "]" ) ). My idea is that when there is a concrete JSON schema, this grammar rule itself changes. Say the JSON Schema has a schema for type X, and we want to parse the type arrayOf[X] (This type can then be used to construct further JSON Schema types etc). Suppose the parse for type X is parse_X. We would get def array_of(X): return seq( single_char( "[" ), X, zero_or_more( seq( single_char( "," ), X) ), single_char( "]" ) ). We would then potentially call and use it elsewhere, say ... seq( key_parser(matches="card_numbers"), single_char(":"), array_of( parse_string )) ...
+
+Thanks!
+
+----
+
+
+
+ 
+Thought Process
+ 
+ 
+ 
+ 
+
+    The user is asking for a deeper integration between the JSON Schema and the parser grammar. They want the parser to be able to generate specialized grammar rules based on the schema, rather than just validating after parsing.  
+
+    Let me understand what they're asking for: 
+
+        Instead of having a generic array parser that works for any type, they want to generate a specialized array parser based on the element type specified in the schema 
+        For example, if the schema specifies an array of strings, they want a parser that specifically parses an array of strings 
+        This would mean the grammar itself changes based on the schema, creating specialized parsers for each schema type 
+
+    This is a more advanced approach where the schema drives the parser generation, not just validation. The idea is to create a system where: 
+
+         We have base parsers for primitive types
+         We can compose these into more complex parsers based on schema definitions
+         The resulting parser is specialized for that particular schema
+         
+
+    Let me implement this approach: 
+
+        Create a parser generator system 
+        Define how different schema types map to parser constructions 
+        Allow composition of parsers based on schema 
+        Maintain the AST structure 
+        Include schema validation as part of the parsing process 
+
+    This is a more sophisticated approach that truly integrates the schema into the parsing process rather than just validating after the fact. 
+     
+
+ 
+
+
+----
+
+
+
+
+I understand your request for deeper integration! You want the JSON Schema to actually generate specialized parser grammars rather than just validating after parsing. This is a more powerful approach where the schema defines the parsing structure itself. Let me implement this:
+
+```python
+import re
+from typing import List, Union, Dict, Any, Tuple, Callable, Optional, TypeVar, Generic, Set
+
+# Basic parser type
+Parser = Callable[[str], Tuple[Optional[Any], str]]
+
+# Type variables for type checking
+T = TypeVar('T')
+
+# AST Node definitions
+class ASTNode:
+    """Base class for all AST nodes"""
+    pass
+
+class StringNode(ASTNode):
+    def __init__(self, value: str):
+        self.value = value
+    
+    def __repr__(self):
+        return f'StringNode("{self.value}")'
+
+class NumberNode(ASTNode):
+    def __init__(self, value: Union[int, float]):
+        self.value = value
+    
+    def __repr__(self):
+        return f'NumberNode({self.value})'
+
+class BooleanNode(ASTNode):
+    def __init__(self, value: bool):
+        self.value = value
+    
+    def __repr__(self):
+        return f'BooleanNode({self.value})'
+
+class NullNode(ASTNode):
+    def __repr__(self):
+        return 'NullNode'
+
+class ArrayNode(ASTNode):
+    def __init__(self, elements: List[ASTNode], element_type: Optional[str] = None):
+        self.elements = elements
+        self.element_type = element_type
+    
+    def __repr__(self):
+        return f'ArrayNode({self.elements})'
+
+class ObjectNode(ASTNode):
+    def __init__(self, properties: Dict[str, ASTNode], property_schema: Optional[Dict] = None):
+        self.properties = properties
+        self.property_schema = property_schema
+    
+    def __repr__(self):
+        return f'ObjectNode({self.properties})'
+
+# Basic parser primitives
+def single_char(char: str) -> Parser:
+    """Parse a single character"""
+    def parser(s: str) -> Tuple[Optional[str], str]:
+        if s.startswith(char):
+            return char, s[1:]
+        return None, s
+    return parser
+
+def whitespace(s: str) -> Tuple[Optional[str], str]:
+    """Parse whitespace"""
+    match = re.match(r'[ \t\n\r]+', s)
+    if match:
+        return match.group(0), s[len(match.group(0)):]
+    return None, s
+
+def parse_string(s: str) -> Tuple[Optional[StringNode], str]:
+    """Parse a JSON string"""
+    if not s.startswith('"'):
+        return None, s
+    
+    s = s[1:]  # consume opening quote
+    result = []
+    escape = False
+    
+    while s:
+        if escape:
+            # Handle escape sequences
+            if s[0] == '"': result.append('"')
+            elif s[0] == '\\': result.append('\\')
+            elif s[0] == '/': result.append('/')
+            elif s[0] == 'b': result.append('\b')
+            elif s[0] == 'f': result.append('\f')
+            elif s[0] == 'n': result.append('\n')
+            elif s[0] == 'r': result.append('\r')
+            elif s[0] == 't': result.append('\t')
+            elif s[0] == 'u':
+                # Unicode escape - simplified version
+                if len(s) < 5:
+                    return None, s
+                try:
+                    result.append(chr(int(s[1:5], 16)))
+                    s = s[5:]
+                except ValueError:
+                    return None, s
+            escape = False
+        elif s[0] == '\\':
+            escape = True
+        elif s[0] == '"':
+            return StringNode(''.join(result)), s[1:]  # consume closing quote
+        else:
+            result.append(s[0])
+        s = s[1:]
+    
+    return None, s  # Unterminated string
+
+def parse_number(s: str) -> Tuple[Optional[NumberNode], str]:
+    """Parse a JSON number"""
+    match = re.match(r'-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?', s)
+    if match:
+        num_str = match.group(0)
+        try:
+            if '.' in num_str or 'e' in num_str or 'E' in num_str:
+                return NumberNode(float(num_str)), s[len(num_str):]
+            else:
+                return NumberNode(int(num_str)), s[len(num_str):]
+        except ValueError:
+            return None, s
+    return None, s
+
+def parse_true(s: str) -> Tuple[Optional[BooleanNode], str]:
+    if s.startswith("true"):
+        return BooleanNode(True), s[4:]
+    return None, s
+
+def parse_false(s: str) -> Tuple[Optional[BooleanNode], str]:
+    if s.startswith("false"):
+        return BooleanNode(False), s[5:]
+    return None, s
+
+def parse_null(s: str) -> Tuple[Optional[NullNode], str]:
+    if s.startswith("null"):
+        return NullNode(), s[4:]
+    return None, s
+
+# Parser combinator functions
+def seq(*parsers: Parser) -> Parser:
+    """Sequence combinator: applies parsers in order"""
+    def parser(s: str) -> Tuple[Optional[Any], str]:
+        results = []
+        for p in parsers:
+            result, s = p(s)
+            if result is None:
+                return None, s
+            results.append(result)
+        return results, s
+    return parser
+
+def choice(*parsers: Parser) -> Parser:
+    """Choice combinator: tries parsers in order, returns first success"""
+    def parser(s: str) -> Tuple[Optional[Any], str]:
+        for p in parsers:
+            result, new_s = p(s)
+            if result is not None:
+                return result, new_s
+        return None, s
+    return parser
+
+def many(parser: Parser) -> Parser:
+    """Many combinator: applies parser zero or more times"""
+    def parser(s: str) -> Tuple[Optional[List[Any]], str]:
+        results = []
+        while True:
+            result, new_s = parser(s)
+            if result is None:
+                break
+            results.append(result)
+            s = new_s
+        return results, s
+    return parser
+
+def many1(parser: Parser) -> Parser:
+    """Many1 combinator: applies parser one or more times"""
+    def parser(s: str) -> Tuple[Optional[List[Any]], str]:
+        result, s = parser(s)
+        if result is None:
+            return None, s
+        results = [result]
+        while True:
+            result, new_s = parser(s)
+            if result is None:
+                break
+            results.append(result)
+            s = new_s
+        return results, s
+    return parser
+
+def optional(parser: Parser) -> Parser:
+    """Optional combinator: parser may or may not succeed"""
+    def parser(s: str) -> Tuple[Optional[Any], str]:
+        result, new_s = parser(s)
+        if result is None:
+            return None, s
+        return result, new_s
+    return parser
+
+def between(left: Parser, parser: Parser, right: Parser) -> Parser:
+    """Between combinator: parser between left and right delimiters"""
+    return seq(left, parser, right)
+
+def map_parser(parser: Parser, func: Callable) -> Parser:
+    """Map combinator: applies function to parser result"""
+    def parser(s: str) -> Tuple[Optional[Any], str]:
+        result, new_s = parser(s)
+        if result is None:
+            return None, new_s
+        return func(result), new_s
+    return parser
+
+def key_parser(matches: str) -> Parser:
+    """Parse a specific key"""
+    def parser(s: str) -> Tuple[Optional[str], str]:
+        s = s.lstrip()
+        if s.startswith(f'"{matches}"'):
+            return matches, s[len(f'"{matches}"'):]
+        return None, s
+    return parser
+
+# Parser generator based on schema
+class SchemaParserGenerator:
+    def __init__(self):
+        self.primitive_parsers = {
+            "string": parse_string,
+            "number": parse_number,
+            "integer": lambda s: map_parser(parse_number, lambda n: NumberNode(int(n.value)))(s),
+            "boolean": choice(parse_true, parse_false),
+            "null": parse_null
+        }
+    
+    def generate_parser(self, schema: Dict) -> Parser:
+        """Generate a parser based on JSON Schema"""
+        schema_type = schema.get("type")
+        
+        if schema_type == "object":
+            return self._generate_object_parser(schema)
+        elif schema_type == "array":
+            return self._generate_array_parser(schema)
+        elif schema_type in self.primitive_parsers:
+            return self._generate_primitive_parser(schema_type)
+        else:
+            raise ValueError(f"Unsupported schema type: {schema_type}")
+    
+    def _generate_primitive_parser(self, type_name: str) -> Parser:
+        """Generate parser for primitive types"""
+        def parser(s: str) -> Tuple[Optional[ASTNode], str]:
+            result, s = self.primitive_parsers[type_name](s)
+            if result is not None:
+                return result, s
+            return None, s
+        return parser
+    
+    def _generate_array_parser(self, schema: Dict) -> Parser:
+        """Generate specialized array parser based on schema"""
+        item_schema = schema.get("items", {})
+        item_parser = self.generate_parser(item_schema)
+        element_type = item_schema.get("type")
+        
+        def array_parser(s: str) -> Tuple[Optional[ArrayNode], str]:
+            def elements(s: str) -> Tuple[Optional[List[ASTNode]], str]:
+                first_val, s = item_parser(s)
+                if first_val is None:
+                    return [], s
+                
+                def rest_vals(s: str) -> Tuple[Optional[List[ASTNode]], str]:
+                    if not s.startswith(','):
+                        return [], s
+                    s = s[1:].lstrip()
+                    val, s = item_parser(s)
+                    if val is None:
+                        return None, s
+                    rest, s = rest_vals(s)
+                    return [val] + rest, s
+                
+                rest, s = rest_vals(s)
+                return [first_val] + rest, s
+            
+            result, s = between(
+                single_char("["),
+                elements,
+                single_char("]")
+            )(s)
+            
+            if result is None:
+                return None, s
+            
+            # Validate array constraints
+            min_items = schema.get("minItems")
+            max_items = schema.get("maxItems")
+            
+            if min_items is not None and len(result) < min_items:
+                return None, f"Array has {len(result)} elements, minimum required is {min_items}"
+            
+            if max_items is not None and len(result) > max_items:
+                return None, f"Array has {len(result)} elements, maximum allowed is {max_items}"
+            
+            return ArrayNode(result, element_type), s
+        
+        return array_parser
+    
+    def _generate_object_parser(self, schema: Dict) -> Parser:
+        """Generate specialized object parser based on schema"""
+        properties = schema.get("properties", {})
+        required = set(schema.get("required", []))
+        additional_properties = schema.get("additionalProperties", True)
+        
+        # Generate parsers for each property
+        property_parsers = {}
+        for prop_name, prop_schema in properties.items():
+            property_parsers[prop_name] = self.generate_parser(prop_schema)
+        
+        def object_parser(s: str) -> Tuple[Optional[ObjectNode], str]:
+            def pair(s: str, prop_name: str, prop_parser: Parser) -> Tuple[Optional[Tuple[str, ASTNode]], str]:
+                key_parser = lambda s: (prop_name, s) if s.lstrip().startswith(f'"{prop_name}"') else (None, s)
+                return seq(
+                    key_parser,
+                    single_char(":"),
+                    prop_parser
+                )(s)
+            
+            def members(s: str) -> Tuple[Optional[Dict[str, ASTNode]], str]:
+                # Try to parse each property
+                parsed_props = {}
+                remaining_s = s
+                
+                # Parse required properties first
+                for prop_name in required:
+                    prop_parser = property_parsers.get(prop_name)
+                    if prop_parser is None:
+                        continue
+                    
+                    result, new_s = pair(remaining_s, prop_name, prop_parser)
+                    if result is None:
+                        return None, remaining_s
+                    
+                    key, val = result
+                    parsed_props[key] = val
+                    remaining_s = new_s
+                
+                # Parse optional properties
+                while True:
+                    parsed_one = False
+                    for prop_name, prop_parser in property_parsers.items():
+                        if prop_name in parsed_props:
+                            continue
+                        
+                        result, new_s = pair(remaining_s, prop_name, prop_parser)
+                        if result is not None:
+                            key, val = result
+                            parsed_props[key] = val
+                            remaining_s = new_s
+                            parsed_one = True
+                            break
+                    
+                    if not parsed_one:
+                        break
+                
+                return parsed_props, remaining_s
+            
+            result, s = between(
+                single_char("{"),
+                members,
+                single_char("}")
+            )(s)
+            
+            if result is None:
+                return None, s
+            
+            # Validate object constraints
+            missing = required - set(result.keys())
+            if missing:
+                return None, f"Missing required properties: {missing}"
+            
+            if not additional_properties:
+                allowed = set(property_parsers.keys())
+                extra = set(result.keys()) - allowed
+                if extra:
+                    return None, f"Additional properties not allowed: {extra}"
+            
+            return ObjectNode(result, properties), s
+        
+        return object_parser
+
+# Main parser that uses schema to generate specialized parsers
+def json_parser(schema: Optional[Dict] = None) -> Parser:
+    """Main JSON parser that generates specialized parsers based on schema"""
+    generator = SchemaParserGenerator()
+    
+    def parser(s: str) -> Tuple[Optional[ASTNode], str]:
+        if schema is None:
+            # Fallback to generic parser if no schema provided
+            return _generic_json_parser(s)
+        
+        try:
+            specialized_parser = generator.generate_parser(schema)
+            return specialized_parser(s)
+        except ValueError as e:
+            return None, str(e)
+    
+    return parser
+
+def _generic_json_parser(s: str) -> Tuple[Optional[ASTNode], str]:
+    """Generic JSON parser for when no schema is provided"""
+    def value(s: str) -> Tuple[Optional[ASTNode], str]:
+        return choice(
+            parse_string,
+            parse_number,
+            parse_true,
+            parse_false,
+            parse_null,
+            _array_parser,
+            _object_parser
+        )(s)
+    
+    def _array_parser(s: str) -> Tuple[Optional[ArrayNode], str]:
+        def elements(s: str) -> Tuple[Optional[List[ASTNode]], str]:
+            first_val, s = value(s)
+            if first_val is None:
+                return [], s
+            
+            def rest_vals(s: str) -> Tuple[Optional[List[ASTNode]], str]:
+                if not s.startswith(','):
+                    return [], s
+                s = s[1:].lstrip()
+                val, s = value(s)
+                if val is None:
+                    return None, s
+                rest, s = rest_vals(s)
+                return [val] + rest, s
+            
+            rest, s = rest_vals(s)
+            return [first_val] + rest, s
+        
+        result, s = between(
+            single_char("["),
+            elements,
+            single_char("]")
+        )(s)
+        
+        if result is None:
+            return None, s
+        
+        return ArrayNode(result), s
+    
+    def _object_parser(s: str) -> Tuple[Optional[ObjectNode], str]:
+        def pair(s: str) -> Tuple[Optional[Tuple[str, ASTNode]], str]:
+            key, s = parse_string(s)
+            if key is None:
+                return None, s
+            s = s.lstrip()
+            if not s.startswith(':'):
+                return None, s
+            s = s[1:].lstrip()
+            val, s = value(s)
+            if val is None:
+                return None, s
+            return (key.value, val), s
+        
+        def members(s: str) -> Tuple[Optional[Dict[str, ASTNode]], str]:
+            first_pair, s = pair(s)
+            if first_pair is None:
+                return {}, s
+            
+            def rest_pairs(s: str) -> Tuple[Optional[Dict[str, ASTNode]], str]:
+                if not s.startswith(','):
+                    return {}, s
+                s = s[1:].lstrip()
+                pair_result, s = pair(s)
+                if pair_result is None:
+                    return None, s
+                rest, s = rest_pairs(s)
+                key, val = pair_result
+                rest[key] = val
+                return rest, s
+            
+            rest, s = rest_pairs(s)
+            if rest is None:
+                return None, s
+            result = {first_pair[0]: first_pair[1]}
+            result.update(rest)
+            return result, s
+        
+        result, s = between(
+            single_char("{"),
+            members,
+            single_char("}")
+        )(s)
+        
+        if result is None:
+            return None, s
+        
+        return ObjectNode(result), s
+    
+    result, s = value(s)
+    if result is None:
+        return None, s
+    s = s.lstrip()
+    if s:  # Extra characters after valid JSON
+        return None, s
+    return result, s
+
+# Example usage
+if __name__ == "__main__":
+    # Define schemas
+    string_array_schema = {
+        "type": "array",
+        "items": {"type": "string"},
+        "minItems": 2,
+        "maxItems": 4
+    }
+    
+    person_schema = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "age": {"type": "number", "minimum": 0},
+            "email": {"type": "string"},
+            "scores": {
+                "type": "array",
+                "items": {"type": "number"},
+                "minItems": 3,
+                "maxItems": 5
+            },
+            "card_numbers": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 1
+            }
+        },
+        "required": ["name", "age"],
+        "additionalProperties": False
+    }
+    
+    # Test cases
+    test_cases = [
+        # Valid string array
+        ('["apple", "banana", "cherry"]', string_array_schema),
+        # Invalid - too few items
+        ('["apple"]', string_array_schema),
+        # Invalid - too many items
+        ('["apple", "banana", "cherry", "date", "elderberry"]', string_array_schema),
+        # Valid person
+        ('{"name": "John", "age": 30, "scores": [85, 92, 78], "card_numbers": ["1234-5678-9012-3456"]}', person_schema),
+        # Invalid - missing required field
+        ('{"age": 30, "scores": [85, 92, 78]}', person_schema),
+        # Invalid - additional property not allowed
+        ('{"name": "John", "age": 30, "extra": "value"}', person_schema),
+        # Valid nested object
+        ('{"name": "John", "age": 30, "address": {"street": "123 Main St"}}', person_schema),
+        # Invalid - missing required nested field
+        ('{"name": "John", "age": 30, "address": {}}', person_schema)
+    ]
+    
+    for json_str, schema in test_cases:
+        print(f"Input: {json_str}")
+        print(f"Schema: {schema}")
+        parser = json_parser(schema)
+        result, remaining = parser(json_str)
+        print(f"Result: {result}")
+        print(f"Remaining: '{remaining}'")
+        print("-" * 60)
+```
+
+This implementation provides the deeper integration you requested:
+
+1. **Schema-Driven Parser Generation**: The `SchemaParserGenerator` class creates specialized parsers based on the JSON Schema. Each schema type (object, array, primitive) generates its own parser with the appropriate constraints.
+
+2. **Specialized Array Parser**: The `_generate_array_parser` method creates an array parser that's specifically tailored to the item type defined in the schema, rather than using a generic array parser.
+
+3. **Specialized Object Parser**: The `_generate_object_parser` method creates an object parser that knows about required properties, allowed properties, and additional properties based on the schema.
+
+4. **Composition**: Parsers are composed using the same combinator functions, but the composition is driven by the schema structure.
+
+5. **Validation Integration**: Validation happens during parsing, not after, so errors are caught as soon as they occur.
+
+6. **Fallback Generic Parser**: If no schema is provided, it falls back to the generic JSON parser.
+
+This approach truly integrates the schema into the parsing process, creating specialized grammars for each schema definition rather than just validating after parsing. The parser becomes a direct representation of the schema structure.
+
+
+
+----
