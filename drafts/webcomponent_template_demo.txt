@@ -1,0 +1,268 @@
+Model used: GLM 4.6V Flash (online)
+
+(intermediate editing rounds omitted)
+
+Show me a self contained code example of: custom element with templating in webcomponent (an emerging web standard). Should include both the JS and usage in html in a self contained full html page. Should also feature scoped styling via shadow root etc. Use tailwind for styling. The custom element should demo both custom attribute, and multiple element inside, eg (demo the idea only don't copy this) <my-cust-ele list-style="bullet"> <li>Hello</li><li>More</li> </my-cust-ele>
+
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Product Grid Custom Element</title>
+    <script src="https://cdn.jsdelivr.net/npm/@webcomponents/webcomponentsjs/webcomponents-bundle.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom element styling */
+        product-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1.5rem;
+            padding: 1rem;
+        }
+        product-card {
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            overflow: hidden;
+            transition: transform 0.2s ease-in-out;
+        }
+        product-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+        product-image {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+        }
+        product-price {
+            font-weight: bold;
+            color: #3b82f6;
+        }
+        product-rating {
+            color: #f59e0b;
+        }
+    </style>
+</head>
+<body>
+    <h1>Product Grid Custom Element</h1>
+    <p>Displaying products using a custom web component with direct child elements:</p>
+    
+    <!-- Custom element usage -->
+    <product-grid>
+        <product-card 
+            id="1" 
+            name="Wireless Headphones" 
+            price="129.99" 
+            rating="4.5" 
+            image="https://picsum.photos/id/1/400/300" 
+            description="High-quality wireless headphones with noise cancellation">
+        </product-card>
+        <product-card 
+            id="2" 
+            name="Smart Watch" 
+            price="199.99" 
+            rating="4.8" 
+            image="https://picsum.photos/id/2/400/300" 
+            description="Advanced smartwatch with fitness tracking">
+        </product-card>
+        <product-card 
+            id="3" 
+            name="Portable Charger" 
+            price="49.99" 
+            rating="4.3" 
+            image="https://picsum.photos/id/3/400/300" 
+            description="20,000mAh portable power bank">
+        </product-card>
+        <product-card 
+            id="4" 
+            name="Bluetooth Speaker" 
+            price="79.99" 
+            rating="4.6" 
+            image="https://picsum.photos/id/4/400/300" 
+            description="Portable Bluetooth speaker with rich sound">
+        </product-card>
+    </product-grid>
+
+    <script>
+        class ProductGrid extends HTMLElement {
+            constructor() {
+                super();
+                
+                // Create shadow root
+                const shadow = this.attachShadow({mode: 'open'});
+                
+                // Define template content
+                const template = document.createElement('template');
+                template.innerHTML = `
+                    <style>
+                        :host {
+                            display: grid;
+                            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+                            gap: 1.5rem;
+                            padding: 1rem;
+                        }
+                        product-card {
+                            border: 1px solid #e5e7eb;
+                            border-radius: 0.5rem;
+                            overflow: hidden;
+                            transition: transform 0.2s ease-in-out;
+                        }
+                        product-card:hover {
+                            transform: translateY(-5px);
+                            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+                        }
+                        product-image {
+                            width: 100%;
+                            height: 200px;
+                            object-fit: cover;
+                        }
+                        product-price {
+                            font-weight: bold;
+                            color: #3b82f6;
+                        }
+                        product-rating {
+                            color: #f59e0b;
+                        }
+                    </style>
+                    <div class="product-grid">
+                        <slot></slot>
+                    </div>
+                `;
+                
+                // Append template content to shadow root
+                shadow.appendChild(template.content.cloneNode(true));
+                
+                // Add observer for child elements
+                this.observer = new MutationObserver((mutations) => {
+                    this.render();
+                });
+                
+                // Start observing the element
+                this.observer.observe(this, { childList: true });
+            }
+            
+            // Render products
+            render() {
+                const productGrid = this.shadowRoot.querySelector('.product-grid');
+                productGrid.innerHTML = '';
+                
+                // Get all product-card children
+                const productCards = this.querySelectorAll('product-card');
+                
+                // Render each product card
+                productCards.forEach(card => {
+                    productGrid.appendChild(card);
+                });
+            }
+        }
+        
+        // Define product card custom element
+        class ProductCard extends HTMLElement {
+            constructor() {
+                super();
+                
+                // Create shadow root
+                const shadow = this.attachShadow({mode: 'open'});
+                
+                // Define template content
+                const template = document.createElement('template');
+                template.innerHTML = `
+                    <style>
+                        :host {
+                            display: block;
+                            padding: 1rem;
+                        }
+                        .product-image {
+                            width: 100%;
+                            height: 200px;
+                            object-fit: cover;
+                        }
+                        .product-name {
+                            font-size: 1.1rem;
+                            font-weight: 600;
+                            margin: 0.5rem 0;
+                        }
+                        .product-description {
+                            color: #6b7280;
+                            font-size: 0.9rem;
+                            margin: 0.5rem 0;
+                        }
+                        .product-rating {
+                            display: flex;
+                            align-items: center;
+                            gap: 0.25rem;
+                            margin: 0.5rem 0;
+                        }
+                        .product-rating-stars {
+                            color: #f59e0b;
+                        }
+                        .product-price {
+                            font-size: 1.2rem;
+                            font-weight: bold;
+                            color: #3b82f6;
+                            margin-top: 0.5rem;
+                        }
+                    </style>
+                    <div class="product-card">
+                        <img class="product-image" src="" alt="">
+                        <h3 class="product-name"></h3>
+                        <p class="product-description"></p>
+                        <div class="product-rating">
+                            <span class="product-rating-stars"></span>
+                            <span class="product-rating-value"></span>
+                        </div>
+                        <div class="product-price"></div>
+                    </div>
+                `;
+                
+                // Append template content to shadow root
+                shadow.appendChild(template.content.cloneNode(true));
+                
+                // Initialize product data
+                this.render();
+            }
+            
+            // Render product data
+            render() {
+                const product = {
+                    id: this.getAttribute('id') || '',
+                    name: this.getAttribute('name') || '',
+                    price: this.getAttribute('price') || '',
+                    rating: this.getAttribute('rating') || '0',
+                    image: this.getAttribute('image') || '',
+                    description: this.getAttribute('description') || ''
+                };
+                
+                // Set image source
+                this.shadowRoot.querySelector('img').src = product.image;
+                this.shadowRoot.querySelector('img').alt = product.name;
+                
+                // Set product name
+                this.shadowRoot.querySelector('.product-name').textContent = product.name;
+                
+                // Set product description
+                this.shadowRoot.querySelector('.product-description').textContent = product.description;
+                
+                // Set rating
+                const stars = Math.floor(product.rating);
+                const starHTML = Array(5).fill().map((_, i) => 
+                    i < stars ? '★' : '☆'
+                ).join('');
+                this.shadowRoot.querySelector('.product-rating-stars').textContent = starHTML;
+                this.shadowRoot.querySelector('.product-rating-value').textContent = `(${product.rating})`;
+                
+                // Set price
+                this.shadowRoot.querySelector('.product-price').textContent = `$${parseFloat(product.price).toFixed(2)}`;
+            }
+        }
+        
+        // Register custom elements
+        customElements.define('product-grid', ProductGrid);
+        customElements.define('product-card', ProductCard);
+    </script>
+</body>
+</html>
+```
