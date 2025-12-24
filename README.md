@@ -23,3 +23,7 @@ GLM 4.7 was just released (2025 Dec), so we test its general coding capability l
 Two sub-entry: 1) Pagoda (Voxel 3D modelling), 2) Age of empire clone minigame (game engine + 3D)
 
 (Note: v5.1 contains some manual programming fix by human)
+
+- **React Admin based Conference Management System**
+
+A quick test of using coding agent (opportunistically). Result is from a single user prompt. This particular artifact is by Claude propietrary model.

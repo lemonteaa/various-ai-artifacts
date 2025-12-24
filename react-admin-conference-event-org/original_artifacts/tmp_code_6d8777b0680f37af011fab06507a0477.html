@@ -1,0 +1,361 @@
+<!-- filename: conference-admin.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conference Management System</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: 'Roboto', sans-serif;
+        }
+        #root {
+            height: 100vh;
+        }
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-size: 24px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div id="root">
+        <div class="loading">Loading Conference Management System...</div>
+    </div>
+
+    <!-- React and ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel Standalone for JSX transformation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Material-UI -->
+    <script src="https://unpkg.com/@mui/material@5.14.20/umd/material-ui.production.min.js"></script>
+    <script src="https://unpkg.com/@mui/icons-material@5.14.19/umd/material-ui-icons.production.min.js"></script>
+    
+    <!-- Emotion (required by MUI) -->
+    <script src="https://unpkg.com/@emotion/react@11.11.1/dist/emotion-react.umd.min.js"></script>
+    <script src="https://unpkg.com/@emotion/styled@11.11.0/dist/emotion-styled.umd.min.js"></script>
+    
+    <!-- React Admin -->
+    <script src="https://unpkg.com/react-admin@4.16.0/dist/react-admin.production.min.js"></script>
+    
+    <!-- LocalForage -->
+    <script src="https://unpkg.com/localforage@1.10.0/dist/localforage.min.js"></script>
+    
+    <!-- Ra Data LocalForage -->
+    <script src="https://unpkg.com/ra-data-local-forage@1.0.1/dist/ra-data-local-forage.umd.js"></script>
+
+    <!-- Load and execute the React component -->
+    <script type="text/babel" data-type="module">
+        const { useState } = React;
+        const {
+          Admin,
+          Resource,
+          List,
+          Datagrid,
+          TextField,
+          DateField,
+          EmailField,
+          ReferenceField,
+          Edit,
+          Create,
+          SimpleForm,
+          TextInput,
+          DateInput,
+          ReferenceInput,
+          SelectInput,
+          required,
+          BooleanField,
+          BooleanInput,
+          NumberField,
+          NumberInput,
+          useRecordContext,
+          FunctionField,
+          ChipField,
+          ArrayField,
+          SingleFieldList,
+          ReferenceArrayInput,
+          SelectArrayInput,
+          useGetIdentity,
+          usePermissions,
+          Show,
+          SimpleShowLayout,
+          RichTextField,
+          TabbedShowLayout,
+          Tab,
+          ReferenceManyField,
+          TopToolbar,
+          EditButton,
+          ShowButton,
+          DeleteButton,
+          ListButton,
+          CreateButton,
+          useNotify,
+          useRedirect,
+          SaveButton,
+          Toolbar,
+          Button,
+          useUpdate,
+          useRefresh,
+          DateTimeInput,
+          Labeled,
+        } = ReactAdmin;
+        
+        const { Card, CardContent, Typography, Box, Chip, Grid } = MaterialUI;
+        const {
+          CheckCircle: CheckCircleIcon,
+          Cancel: CancelIcon,
+          Pending: PendingIcon,
+          Event: EventIcon,
+          People: PeopleIcon,
+          Flight: FlightIcon,
+          Hotel: HotelIcon,
+          Assignment: AssignmentIcon,
+          Person: PersonIcon,
+        } = MaterialUIIcons;
+
+        // Paste the entire App component code here
+        // (Due to length, I'll provide the key parts)
+
+        // Default data
+        const defaultData = {
+          users: [
+            { id: 1, username: 'admin', password: 'admin123', email: 'admin@conference.com', role: 'organizer', name: 'Alice Admin' },
+            { id: 2, username: 'organizer1', password: 'org123', email: 'org1@conference.com', role: 'organizer', name: 'Bob Organizer' },
+            { id: 3, username: 'reviewer1', password: 'rev123', email: 'rev1@conference.com', role: 'reviewer', name: 'Carol Reviewer' },
+            { id: 4, username: 'reviewer2', password: 'rev123', email: 'rev2@conference.com', role: 'reviewer', name: 'David Reviewer' },
+            { id: 5, username: 'speaker1', password: 'spk123', email: 'speaker1@conference.com', role: 'speaker', name: 'Eve Speaker' },
+            { id: 6, username: 'speaker2', password: 'spk123', email: 'speaker2@conference.com', role: 'speaker', name: 'Frank Speaker' },
+            { id: 7, username: 'speaker3', password: 'spk123', email: 'speaker3@conference.com', role: 'speaker', name: 'Grace Speaker' },
+          ],
+          talk_proposals: [
+            {
+              id: 1,
+              title: 'The Future of AI in Healthcare',
+              abstract: 'Exploring how artificial intelligence is revolutionizing medical diagnosis and treatment planning.',
+              speaker_id: 5,
+              submitted_date: '2025-11-15',
+              status: 'under_review',
+              duration_minutes: 45,
+              topic_category: 'AI/ML',
+              reviewer_ids: [3, 4],
+            },
+            {
+              id: 2,
+              title: 'Sustainable Software Architecture',
+              abstract: 'Best practices for building environmentally conscious and energy-efficient software systems.',
+              speaker_id: 6,
+              submitted_date: '2025-11-20',
+              status: 'accepted',
+              duration_minutes: 30,
+              topic_category: 'Software Engineering',
+              reviewer_ids: [3],
+              decision_date: '2025-12-01',
+              decision_notes: 'Excellent topic, very relevant to current trends.',
+            },
+            {
+              id: 3,
+              title: 'Quantum Computing Basics',
+              abstract: 'An introduction to quantum computing principles for software developers.',
+              speaker_id: 7,
+              submitted_date: '2025-11-25',
+              status: 'pending',
+              duration_minutes: 60,
+              topic_category: 'Emerging Tech',
+              reviewer_ids: [],
+            },
+          ],
+          reviews: [
+            {
+              id: 1,
+              talk_proposal_id: 1,
+              reviewer_id: 3,
+              rating: 4,
+              comments: 'Strong proposal with clear objectives. Would benefit from more technical depth.',
+              review_date: '2025-11-22',
+              recommendation: 'accept',
+            },
+            {
+              id: 2,
+              talk_proposal_id: 1,
+              reviewer_id: 4,
+              rating: 5,
+              comments: 'Excellent topic and well-structured abstract. Highly recommend acceptance.',
+              review_date: '2025-11-23',
+              recommendation: 'accept',
+            },
+          ],
+          attendees: [
+            {
+              id: 1,
+              name: 'John Attendee',
+              email: 'john@company.com',
+              country: 'USA',
+              organization: 'Tech Corp',
+              registration_date: '2025-12-01',
+              needs_accommodation: true,
+              needs_flight: true,
+              dietary_restrictions: 'Vegetarian',
+              speaker_id: 5,
+            },
+            {
+              id: 2,
+              name: 'Jane International',
+              email: 'jane@global.com',
+              country: 'UK',
+              organization: 'Global Solutions',
+              registration_date: '2025-12-03',
+              needs_accommodation: true,
+              needs_flight: true,
+              dietary_restrictions: 'None',
+              speaker_id: null,
+            },
+          ],
+          flights: [
+            {
+              id: 1,
+              attendee_id: 1,
+              departure_city: 'New York',
+              arrival_city: 'San Francisco',
+              departure_date: '2026-03-14',
+              return_date: '2026-03-18',
+              airline: 'United Airlines',
+              flight_number: 'UA1234',
+              booking_status: 'confirmed',
+              cost: 450,
+              booking_reference: 'ABC123',
+            },
+          ],
+          accommodations: [
+            {
+              id: 1,
+              attendee_id: 1,
+              hotel_name: 'Conference Hotel',
+              check_in_date: '2026-03-14',
+              check_out_date: '2026-03-18',
+              room_type: 'Standard',
+              booking_status: 'confirmed',
+              cost_per_night: 180,
+              total_nights: 4,
+              booking_reference: 'HTL456',
+            },
+          ],
+          tasks: [
+            {
+              id: 1,
+              title: 'Finalize venue contract',
+              description: 'Sign the contract with the conference venue and make initial payment.',
+              assigned_to_id: 1,
+              status: 'completed',
+              priority: 'high',
+              due_date: '2025-12-01',
+              completed_date: '2025-11-28',
+              depends_on_task_ids: [],
+              category: 'venue',
+            },
+            {
+              id: 2,
+              title: 'Send acceptance letters to speakers',
+              description: 'Notify all accepted speakers and request confirmation.',
+              assigned_to_id: 2,
+              status: 'in_progress',
+              priority: 'high',
+              due_date: '2025-12-20',
+              completed_date: null,
+              depends_on_task_ids: [],
+              category: 'speakers',
+            },
+          ],
+          decisions: [
+            {
+              id: 1,
+              title: 'Conference Theme Selection',
+              description: 'Choose the main theme for the 2026 conference.',
+              decision_type: 'theme',
+              status: 'approved',
+              proposed_by_id: 1,
+              proposed_date: '2025-10-15',
+              decision_date: '2025-10-20',
+              approved_by_ids: [1, 2],
+              rejected_by_ids: [],
+              final_decision: 'Innovation in Technology and Sustainability',
+              notes: 'Unanimous approval.',
+            },
+          ],
+        };
+
+        // Auth Provider
+        const authProvider = {
+          login: async ({ username, password }) => {
+            const dataProvider = raDataLocalForage({
+              defaultData,
+              prefixLocalForageKey: 'conference-app',
+            });
+            
+            const { data: users } = await dataProvider.getList('users', {
+              pagination: { page: 1, perPage: 100 },
+              sort: { field: 'id', order: 'ASC' },
+              filter: {},
+            });
+            
+            const user = users.find(u => u.username === username && u.password === password);
+            
+            if (user) {
+              localStorage.setItem('auth', JSON.stringify({ 
+                id: user.id, 
+                username: user.username, 
+                role: user.role,
+                name: user.name,
+                email: user.email,
+              }));
+              return Promise.resolve();
+            }
+            
+            return Promise.reject(new Error('Invalid username or password'));
+          },
+          logout: () => {
+            localStorage.removeItem('auth');
+            return Promise.resolve();
+          },
+          checkAuth: () => {
+            return localStorage.getItem('auth') ? Promise.resolve() : Promise.reject();
+          },
+          checkError: (error) => {
+            const status = error.status;
+            if (status === 401 || status === 403) {
+              localStorage.removeItem('auth');
+              return Promise.reject();
+            }
+            return Promise.resolve();
+          },
+          getIdentity: () => {
+            const auth = localStorage.getItem('auth');
+            if (auth) {
+              const user = JSON.parse(auth);
+              return Promise.resolve({
+                id: user.id,
+                fullName: user.name,
+              });
+            }
+            return Promise.reject();
+          },
+          getPermissions: () => {
+            const auth = localStorage.getItem('auth');
+            if (auth) {
+              const user = JSON.parse(auth);
+              return Promise.resolve(user.role);
+            }
+            return Promise.reject();
+          },
+        };
+
+        const dataProvider = raDataLocalForage({
+          defaultData,
+          pref
