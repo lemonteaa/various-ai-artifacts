@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voxel Pagoda: Twilight Edition</title>
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --accent-color: #d35400; /* Sunset Orange */
+            --text-color: #ecf0f1;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+
+        /* UI Overlay */
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            pointer-events: none;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(8px);
+            padding: 25px;
+            border-radius: 12px;
+            color: var(--text-color);
+            border-left: 4px solid var(--accent-color);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            max-width: 320px;
+            transition: all 0.3s ease;
+        }
+
+        h1 {
+            margin: 0 0 8px 0;
+            font-size: 1.4rem;
+            font-weight: 300;
+            letter-spacing: 1px;
+        }
+
+        p {
+            margin: 0 0 15px 0;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            color: #bdc3c7;
+        }
+
+        .control-panel {
+            pointer-events: auto;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+
+        label {
+            display: block;
+            font-size: 0.8rem;
+            margin-bottom: 8px;
+            color: #95a5a6;
+        }
+
+        input[type=range] {
+            width: 100%;
+            cursor: pointer;
+            accent-color: var(--accent-color);
+        }
+
+        .status-badge {
+            display: inline-block;
+            font-size: 0.7rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: rgba(255,255,255,0.1);
+            margin-bottom: 10px;
+            color: #f1c40f;
+        }
+
+        /* Loading */
+        #loader {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: #111;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 999;
+            transition: opacity 1s ease;
+        }
+        
+        .spinner {
+            width: 40px; height: 40px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: var(--accent-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 15px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <div id="loader">
+        <div class="spinner"></div>
+        <div style="font-size: 0.8rem; color: #666;">Generating Voxel World...</div>
+    </div>
+
+    <div id="ui-layer">
+        <div class="status-badge">High-Fidelity Voxel Engine</div>
+        <h1>Kyoto Twilight</h1>
+        <p>A procedural demo featuring tapered pagoda architecture, curved roofing, and dynamic sakura particles.</p>
+        
+        <div class="control-panel">
+            <label for="time-slider">Time of Day (Atmosphere)</label>
+            <input type="range" id="time-slider" min="0" max="100" value="70">
+        </div>
+        
+        <div style="margin-top:15px; font-size:0.75rem; color:#7f8c8d;">
+            Left Click: Rotate | Right Click: Pan | Scroll: Zoom
+        </div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- Configuration ---
+        const VOXEL_SIZE = 0.5; // Finer detail
+        const COLORS = {
+            grassDark: 0x3e5228,
+            grassLight: 0x546f34,
+            stone: 0x7f8c8d,
+            woodRed: 0xa93226, // Muted Vermilion
+            woodDark: 0x3e2723,
+            wall: 0xf5f5f5,
+            roof: 0x212121,
+            gold: 0xffb700,
+            leafDark: 0x1b5e20,
+            leafLight: 0x43a047,
+            water: 0x3498db,
+            petal: 0xffc0cb
+        };
+
+        // --- Engine Setup ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x5c4b45); // Initial twilight background
+        
+        // Camera
+        const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 200);
+        camera.position.set(-30, 20, 30);
+
+        // Renderer
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        // Controls
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.maxPolarAngle = Math.PI / 2 - 0.05;
+        controls.target.set(0, 6, 0);
+
+        // --- Advanced Voxel System (InstancedMesh) ---
+        // To support thousands of voxels without lag, we use InstancedMesh.
+        // We group voxels by color.
+        
+        const geometry = new THREE.BoxGeometry(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
+        const materialCache = {};
+        const voxelData = {}; // Map: colorHex -> Array of {x, y, z}
+        
+        // Add voxel data to buffer
+        function addVoxel(x, y, z, colorHex) {
+            if (!voxelData[colorHex]) voxelData[colorHex] = [];
+            voxelData[colorHex].push({x, y, z});
+        }
+
+        // Build meshes from data
+        function buildMeshes() {
+            const dummy = new THREE.Object3D();
+            const group = new THREE.Group();
+
+            for (const [colorStr, positions] of Object.entries(voxelData)) {
+                const color = parseInt(colorStr);
+                const material = new THREE.MeshStandardMaterial({
+                    color: color,
+                    roughness: 0.9,
+                    flatShading: true
+                });
+                
+                const mesh = new THREE.InstancedMesh(geometry, material, positions.length);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+
+                positions.forEach((pos, i) => {
+                    dummy.position.set(pos.x, pos.y, pos.z);
+                    dummy.updateMatrix();
+                    mesh.setMatrixAt(i, dummy.matrix);
+                });
+                
+                mesh.instanceMatrix.needsUpdate = true;
+                group.add(mesh);
+            }
+            return group;
+        }
+
+        // --- Procedural Generation Logic ---
+
+        // 1. Ground
+        function buildGround() {
+            const size = 35;
+            // Simple noise logic for height could go here, but keeping it flat for architecture clarity
+            for (let x = -size; x <= size; x++) {
+                for (let z = -size; z <= size; z++) {
+                    const dist = Math.sqrt(x*x + z*z);
+                    
+                    // Main Path
+                    if ((Math.abs(x) < 3 && dist < 25) || (Math.abs(z) < 3 && dist < 25)) {
+                         addVoxel(x, -0.5, z, COLORS.stone);
+                    } 
+                    // Grass
+                    else {
+                        const col = (x+z)%3 === 0 ? COLORS.grassLight : COLORS.grassDark;
+                        addVoxel(x, -0.5, z, col);
+                    }
+                }
+            }
+        }
+
+        // 2. Trees (Optimized)
+        function buildTree(x, z) {
+            const h = 3 + Math.floor(Math.random() * 2);
+            // Trunk
+            for(let y=0; y<h; y++) addVoxel(x, y, z, COLORS.woodDark);
+            
+            // Foliage (Simple Sphere-ish)
+            const c = Math.random() > 0.5 ? COLORS.leafDark : COLORS.leafLight;
+            for(let lx=-2; lx<=2; lx++) {
+                for(let ly=0; ly<=2; ly++) {
+                    for(let lz=-2; lz<=2; lz++) {
+                        if (lx*lx + ly*ly + lz*lz <= 6) {
+                            if (lx!==0 || lz!==0 || ly>=1) { // Don't overwrite trunk base
+                                addVoxel(x+lx, h+ly, z+lz, c);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Torii Gate (Corrected Rotation)
+        function buildTorii(cx, cz, rotationRad) {
+            // Define local offsets relative to center (0,0,0) before rotation
+            // Gate modeled along X axis
+            const dist = 6;
+            const h = 7;
+            
+            const positions = [];
+            
+            // Pillars
+            for(let y=0; y<h; y++) {
+                positions.push([-1, y, -dist/2]);
+                positions.push([0, y, -dist/2]);
+                positions.push([1, y, -dist/2]);
+                
+                positions.push([-1, y, dist/2]);
+                positions.push([0, y, dist/2]);
+                positions.push([1, y, dist/2]);
+            }
+            
+            // Lintels
+            // Lower
+            for(let i = -dist/2 - 1; i <= dist/2 + 1; i++) {
+                positions.push([0, h-2, i]); 
+                positions.push([0, h-1, i]);
+            }
+            // Upper (Curved tips)
+            for(let i = -dist/2 - 2; i <= dist/2 + 2; i++) {
+                positions.push([0, h, i]);
+                if(Math.abs(i) >= dist/2) positions.push([0, h+1, i]);
+                if(Math.abs(i) >= dist/2 + 1) positions.push([0, h+2, i]);
+            }
+
+            // Rotate and Place
+            positions.forEach(p => {
+                const [lx, ly, lz] = p;
+                // 2D Rotation around Y
+                const rx = lx * Math.cos(rotationRad) - lz * Math.sin(rotationRad);
+                const rz = lx * Math.sin(rotationRad) + lz * Math.cos(rotationRad);
+                
+                addVoxel(Math.round(cx + rx), ly, Math.round(cz + rz), COLORS.woodRed);
+            });
+            
+            // Add black top tips (Kasagi accent)
+            const tips = [
+                [-dist/2 - 2, h, 0], [dist/2 + 2, h, 0], // Center top tips relative to rotation logic handled below
+            ];
+             tips.forEach(p => {
+                const [lx, ly, lz] = p;
+                const rx = lx * Math.cos(rotationRad) - lz * Math.sin(rotationRad);
+                const rz = lx * Math.sin(rotationRad) + lz * Math.cos(rotationRad);
+                addVoxel(Math.round(cx + rx), ly, Math.round(cz + rz), COLORS.roof);
+            });
+        }
+
+        // 4. Pagoda (Advanced Architecture)
+        function buildPagoda(cx, cz) {
+            const tiers = 3;
+            let currentY = 0;
+            
+            // Foundation
+            for(let x=-6; x<=6; x++) for(let z=-6; z<=6; z++) {
+                addVoxel(cx+x, currentY, cz+z, COLORS.stone);
+                addVoxel(cx+x, currentY+1, cz+z, COLORS.stone);
+            }
+            currentY += 2;
+
+            for(let t=0; t<tiers; t++) {
+                // Tapering: Width reduces per tier
+                const wallW = 5 - t; 
+                const roofOverhang = 3;
+                const roofW = wallW + roofOverhang;
+
+                // --- Walls & Windows ---
+                for(let y=0; y<4; y++) {
+                    for(let x=-wallW; x<=wallW; x++) {
+                        for(let z=-wallW; z<=wallW; z++) {
+                            // Hollow inside
+                            if (Math.abs(x) < wallW && Math.abs(z) < wallW) {
+                                // Interior floor? Skip for now
+                                continue;
+                            }
+                            
+                            // Pillars (Corners)
+                            if (Math.abs(x) === wallW && Math.abs(z) === wallW) {
+                                addVoxel(cx+x, currentY+y, cz+z, COLORS.woodRed);
+                            } 
+                            // Walls with Windows
+                            else {
+                                // Check if this is a window spot
+                                // Pattern: Grid windows
+                                const isWindow = (y === 1 || y === 2) && 
+                                                 ((Math.abs(x) < wallW-1 && Math.abs(z) === wallW) || 
+                                                  (Math.abs(z) < wallW-1 && Math.abs(x) === wallW)) &&
+                                                 ((Math.abs(x)%2 === 0) || (Math.abs(z)%2 === 0));
+                                
+                                if (isWindow) {
+                                    // Window frame (wood)
+                                    addVoxel(cx+x, currentY+y, cz+z, COLORS.woodDark);
+                                } else {
+                                    // Wall (White)
+                                    addVoxel(cx+x, currentY+y, cz+z, COLORS.wall);
+                                }
+                            }
+                        }
+                    }
+                }
+                currentY += 4;
+
+                // --- Curved Roof ---
+                // We generate rings. The center is lower, edges curve UP.
+                // Mathematical curve: y = a * x^2
+                // In voxels: Offset = max_height - factor * (dist_from_center)^2
+                
+                const roofHeight = 2;
+                const curveFactor = 0.25; // How much it curves up
+                
+                for(let r=0; r<=roofW; r++) {
+                    // Calculate drop: center is higher (or edges are higher).
+                    // Japanese style: Edges curve UP.
+                    // So at r=0, y=0. At r=roofW, y=positive.
+                    const curveHeight = Math.pow((r/roofW), 2.5) * 2.5;
+                    
+                    const ringRadius = roofW - r;
+                    
+                    for(let angle=0; angle<Math.PI*2; angle+=0.1) {
+                        const rx = Math.round(Math.cos(angle) * ringRadius);
+                        const rz = Math.round(Math.sin(angle) * ringRadius);
+                        
+                        // Thickness of roof
+                        for(let th=0; th<2; th++) {
+                            addVoxel(cx+rx, currentY + th + Math.floor(curveHeight), cz+rz, COLORS.roof);
+                        }
+                    }
+                }
+                // Corner finials (Upward tips)
+                const corners = [
+                    [1,1], [1,-1], [-1,1], [-1,-1]
+                ];
+                corners.forEach(c => {
+                    addVoxel(cx + c[0]*(roofW+1), currentY + 3, cz + c[1]*(roofW+1), COLORS.gold);
+                });
+
+                currentY += 3;
+            }
+
+            // Spire
+            for(let y=0; y<6; y++) {
+                addVoxel(cx, currentY+y, cz, COLORS.gold);
+            }
+        }
+
+        // --- Particle System (Sakura) ---
+        let particles;
+        function createParticles() {
+            const particleCount = 400;
+            const geom = new THREE.BufferGeometry();
+            const posArray = new Float32Array(particleCount * 3);
+            const speedArray = new Float32Array(particleCount);
+            const offsetArray = new Float32Array(particleCount);
+
+            for(let i=0; i<particleCount * 3; i+=3) {
+                posArray[i] = (Math.random() - 0.5) * 80;   // x
+                posArray[i+1] = Math.random() * 40 + 5;    // y
+                posArray[i+2] = (Math.random() - 0.5) * 80; // z
+                
+                speedArray[i/3] = 0.02 + Math.random() * 0.05;
+                offsetArray[i/3] = Math.random() * 100;
+            }
+
+            geom.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+            geom.setAttribute('speed', new THREE.BufferAttribute(speedArray, 1));
+            geom.setAttribute('offset', new THREE.BufferAttribute(offsetArray, 1));
+
+            // Simple texture-less material (points)
+            const mat = new THREE.PointsMaterial({
+                color: COLORS.petal,
+                size: 0.4,
+                transparent: true,
+                opacity: 0.8,
+                sizeAttenuation: true
+            });
+
+            particles = new THREE.Points(geom, mat);
+            scene.add(particles);
+        }
+
+        function updateParticles() {
+            const positions = particles.geometry.attributes.position.array;
+            const speeds = particles.geometry.attributes.speed.array;
+            
+            for(let i=1; i<positions.length; i+=3) {
+                // Move down
+                positions[i] -= speeds[(i-1)/3];
+                
+                // Wind effect (sine wave)
+                const idx = (i-1)/3;
+                positions[i-1] += Math.sin(Date.now() * 0.001 + idx) * 0.02;
+
+                // Reset
+                if(positions[i] < 0) {
+                    positions[i] = 40;
+                    positions[i-1] = (Math.random() - 0.5) * 80;
+                }
+            }
+            particles.geometry.attributes.position.needsUpdate = true;
+            particles.rotation.y += 0.001;
+        }
+
+        // --- Atmosphere Control ---
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.4);
+        scene.add(hemiLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffaa33, 1.0);
+        dirLight.position.set(-30, 40, 20);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.bias = -0.0001;
+        scene.add(dirLight);
+
+        // --- Initialization ---
+        function init() {
+            buildGround();
+            
+            // Place Pagoda
+            buildPagoda(0, 0);
+            
+            // Place Torii (Facing IN towards pagoda)
+            // Front (South): Gate at Z = -15, facing +Z
+            buildTorii(0, -15, 0); 
+            // Right (East): Gate at X = 15, facing -X (which is 90 deg rotation)
+            buildTorii(15, 0, Math.PI / 2);
+            // Left (West): Gate at X = -15, facing +X (which is -90 deg)
+            buildTorii(-15, 0, -Math.PI / 2);
+
+            // Trees (Sparse but detailed)
+            for(let i=0; i<20; i++) {
+                const x = (Math.random() - 0.5) * 60;
+                const z = (Math.random() - 0.5) * 60;
+                const d = Math.sqrt(x*x + z*z);
+                if(d > 18) buildTree(Math.round(x), Math.round(z));
+            }
+
+            const worldMesh = buildMeshes();
+            scene.add(worldMesh);
+            
+            createParticles();
+            
+            // Remove Loader
+            setTimeout(() => {
+                document.getElementById('loader').style.opacity = '0';
+                setTimeout(() => document.getElementById('loader').style.display = 'none', 1000);
+            }, 500);
+        }
+
+        // --- Interaction ---
+        const slider = document.getElementById('time-slider');
+        slider.addEventListener('input', (e) => {
+            const val = e.target.value / 100;
+            
+            // Interpolate Colors
+            // Noon (0) -> Sunset (1)
+            
+            // Sky Color
+            const noonSky = new THREE.Color(0x87CEEB);
+            const sunsetSky = new THREE.Color(0x5c4b45);
+            const curSky = noonSky.clone().lerp(sunsetSky, val);
+            scene.background = curSky;
+            scene.fog = new THREE.FogExp2(curSky, val * 0.02 + 0.005);
+
+            // Sun Color & Intensity
+            const noonSun = new THREE.Color(0xffffff);
+            const sunsetSun = new THREE.Color(0xffaa33);
+            dirLight.color.copy(noonSun).lerp(sunsetSun, val);
+            dirLight.intensity = 1.2 - (val * 0.5); // Dimmer at sunset
+            
+            // Ambient
+            hemiLight.intensity = 0.6 - (val * 0.3);
+        });
+
+        // Trigger initial sunset
+        slider.dispatchEvent(new Event('input'));
+
+        // --- Loop ---
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            updateParticles();
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        init();
+        animate();
+
+    </script>
+</body>
+</html>

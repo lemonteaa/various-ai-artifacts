@@ -16,3 +16,8 @@ Neural Tangent Kernel + NNGP (Neural Network Gaussian Process)/Infinite Width li
 
 There is the huggingface transformer tutorial, but I personally found it to be quite tedious (long winded setups). AI basically one-shot the task successfully. (I did provide some carefully curated context, and it is allowed to use the transformer library - this is an infra task, not a test of pytorch tensor programming ability) Thought wouold share just in case anyone find it helpful.
 
+- **GLM 4.7 Smoke test**
+
+GLM 4.7 was just released (2025 Dec), so we test its general coding capability level. Mainly self contained tests that request a self contained webpage, vanilla html5 + css + js, CDN JS Library only. Usually visual tests (aka 3D demo) since those are the kinds where even layperson can "see" the results at a glance (like, literally see).
+
+Two sub-entry: 1) Pagoda (Voxel 3D modelling), 2) Age of empire clone minigame (game engine + 3D)

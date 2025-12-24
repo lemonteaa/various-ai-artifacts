@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Voxel Pagoda Demo</title>
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --accent-color: #c0392b;
+            --text-color: #ecf0f1;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            user-select: none;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+
+        /* UI Overlay */
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            pointer-events: none; /* Let clicks pass through to 3D scene */
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+            padding: 20px;
+            border-radius: 8px;
+            color: var(--text-color);
+            border-left: 4px solid var(--accent-color);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            max-width: 300px;
+            transition: opacity 0.5s ease;
+        }
+
+        h1 {
+            margin: 0 0 10px 0;
+            font-size: 1.2rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        p {
+            margin: 0 0 10px 0;
+            font-size: 0.9rem;
+            line-height: 1.4;
+            color: #bdc3c7;
+        }
+
+        .controls-hint {
+            font-size: 0.8rem;
+            color: #95a5a6;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            padding-top: 10px;
+        }
+
+        .key {
+            display: inline-block;
+            background: rgba(255,255,255,0.2);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-weight: bold;
+        }
+
+        /* Loading Overlay */
+        #loader {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #111;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 999;
+            transition: opacity 0.8s ease;
+        }
+        
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #333;
+            border-top: 4px solid var(--accent-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    </style>
+    <!-- Import Three.js as ES Modules from CDN -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <!-- Loading Screen -->
+    <div id="loader"><div class="spinner"></div></div>
+
+    <!-- UI Overlay -->
+    <div id="ui-layer">
+        <h1>Voxel Pagoda Sanctuary</h1>
+        <p>A procedural 3D demo featuring a multi-tiered pagoda, traditional torii gates, and voxel landscaping.</p>
+        <div class="controls-hint">
+            <p>Controls:</p>
+            <div><span class="key">LMB</span> Rotate</div>
+            <div><span class="key">RMB</span> Pan</div>
+            <div><span class="key">Scroll</span> Zoom</div>
+        </div>
+    </div>
+
+    <!-- 3D Container -->
+    <div id="canvas-container"></div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- Configuration & Constants ---
+        const VOXEL_SIZE = 1;
+        const COLORS = {
+            grass: 0x568e3c,
+            dirt: 0x5d4037,
+            stone: 0x757575,
+            woodRed: 0xc0392b, // Vermilion
+            woodDark: 0x3e2723,
+            whiteWall: 0xfdfefe,
+            roof: 0x212121,
+            gold: 0xffd700,
+            leafGreen: 0x2e7d32,
+            leafLight: 0x4caf50,
+            water: 0x29b6f6
+        };
+
+        // --- Scene Setup ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB); // Sky blue
+        scene.fog = new THREE.Fog(0x87CEEB, 20, 90);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(-25, 20, 25);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+
+        // --- Lighting ---
+        const ambientLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+        dirLight.position.set(-20, 50, 20);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.camera.near = 0.5;
+        dirLight.shadow.camera.far = 100;
+        dirLight.shadow.camera.left = -40;
+        dirLight.shadow.camera.right = 40;
+        dirLight.shadow.camera.top = 40;
+        dirLight.shadow.camera.bottom = -40;
+        scene.add(dirLight);
+
+        // --- Controls ---
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.maxPolarAngle = Math.PI / 2 - 0.05; // Prevent going below ground
+        controls.target.set(0, 5, 0);
+
+        // --- Voxel Builder System ---
+        // We reuse geometry and materials for performance (Instancing logic simplified to Groups for readability in this specific demo)
+        const geometry = new THREE.BoxGeometry(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
+        
+        // Cache materials to avoid creating duplicates
+        const materialCache = {};
+        function getMaterial(color) {
+            if (!materialCache[color]) {
+                materialCache[color] = new THREE.MeshStandardMaterial({ 
+                    color: color, 
+                    roughness: 0.8,
+                    flatShading: true
+                });
+            }
+            return materialCache[color];
+        }
+
+        const worldGroup = new THREE.Group();
+        scene.add(worldGroup);
+
+        // Helper: Place a single voxel
+        function placeVoxel(x, y, z, color) {
+            const material = getMaterial(color);
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.position.set(x, y, z);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            // Optimization: Matrix update not needed for static, but good practice if moving
+            mesh.updateMatrix();
+            worldGroup.add(mesh);
+        }
+
+        // --- Procedural Generation Functions ---
+
+        // 1. Ground Generation
+        function buildGround() {
+            const size = 40; // 40x40 area
+            for (let x = -size; x <= size; x++) {
+                for (let z = -size; z <= size; z++) {
+                    // Create a slight variation/noise or just flat
+                    // Create a path (water/moss) around the center
+                    const dist = Math.sqrt(x*x + z*z);
+                    let color = COLORS.grass;
+                    
+                    // Stone path area
+                    if (dist < 18 && Math.abs(x) < 4) color = COLORS.stone;
+                    else if (dist < 5 && Math.abs(z) < 5) color = COLORS.stone; // Base area
+
+                    placeVoxel(x, -1, z, color);
+                }
+            }
+        }
+
+        // 2. Tree Generator
+        function buildTree(x, z) {
+            const height = 3 + Math.floor(Math.random() * 3);
+            // Trunk
+            for (let y = 0; y < height; y++) {
+                placeVoxel(x, y, z, COLORS.woodDark);
+            }
+            // Leaves (Cross/Sphere pattern)
+            const leafY = height;
+            const color = Math.random() > 0.5 ? COLORS.leafGreen : COLORS.leafLight;
+            
+            // Simple voxel foliage shape
+            for (let lx = -2; lx <= 2; lx++) {
+                for (let ly = 0; ly <= 2; ly++) {
+                    for (let lz = -2; lz <= 2; lz++) {
+                        // Simple spherical check
+                        if (Math.abs(lx) + Math.abs(ly) + Math.abs(lz) <= 3) {
+                            // Don't overwrite trunk
+                            if (lx !== 0 || lz !== 0 || ly > 0) {
+                                placeVoxel(x + lx, leafY + ly, z + lz, color);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Torii Gate Generator
+        function buildTorii(x, z, rotationY = 0) {
+            // To support rotation, we need to calculate positions relative to a center (x,z) and rotate them.
+            // For simplicity in this voxel demo, we'll stick to axis-aligned or just manually calculate rotated coords.
+            // Let's implement a simple 2D rotation logic for placement.
+            
+            const h = 6; // pillar height
+            const dist = 4; // distance between pillars
+            
+            const positions = [
+                // Pillars
+                [-1, 0, -dist/2, 1, h, 1], // Left pillar size
+                [1, 0, -dist/2, 1, h, 1],
+                [-1, 0, dist/2, 1, h, 1],
+                [1, 0, dist/2, 1, h, 1]
+            ];
+
+            // Lintels (Top beams)
+            // Kasagi (Top curved beam) - simplified as blocks
+            const topY = h;
+            const bottomY = h - 2;
+
+            // Helper to place rotated block
+            function placeRotated(px, py, pz, color) {
+                // Rotate point (px, pz) around (0,0)
+                const rad = rotationY;
+                const rx = px * Math.cos(rad) - pz * Math.sin(rad);
+                const rz = px * Math.sin(rad) + pz * Math.cos(rad);
+                placeVoxel(x + Math.round(rx), py, z + Math.round(rz), color);
+            }
+
+            // Draw Pillars
+            for(let y=0; y<h; y++) {
+                placeRotated(-1, y, -dist/2, COLORS.woodRed);
+                placeRotated(0, y, -dist/2, COLORS.woodRed); // thick
+                placeRotated(1, y, -dist/2, COLORS.woodRed);
+
+                placeRotated(-1, y, dist/2, COLORS.woodRed);
+                placeRotated(0, y, dist/2, COLORS.woodRed);
+                placeRotated(1, y, dist/2, COLORS.woodRed);
+            }
+
+            // Draw Lintels (connecting)
+            for(let i = -dist/2 - 1; i <= dist/2 + 1; i++) {
+                // Lower Lintel (Nuki)
+                placeRotated(0, bottomY, i, COLORS.woodRed);
+                
+                // Upper Lintel (Kasagi) - Main beam
+                placeRotated(0, topY, i, COLORS.woodDark);
+                
+                // Curve up tips
+                placeRotated(0, topY + 1, -dist/2 - 1, COLORS.woodDark);
+                placeRotated(0, topY + 1, dist/2 + 1, COLORS.woodDark);
+            }
+            
+            // Optional: Tablet at top center
+            placeRotated(0, topY + 1, 0, COLORS.woodDark);
+        }
+
+        // 4. Pagoda Builder
+        function buildPagoda(x, z) {
+            const tiers = 3;
+            let currentY = 0; // Start from ground level (y=0 is sitting on ground blocks y=-1)
+            
+            // Base Platform
+            for(let bx = -4; bx <= 4; bx++) {
+                for(let bz = -4; bz <= 4; bz++) {
+                    placeVoxel(x + bx, currentY, z + bz, COLORS.stone);
+                    placeVoxel(x + bx, currentY+1, z + bz, COLORS.stone);
+                }
+            }
+            currentY += 2;
+
+            for (let t = 0; t < tiers; t++) {
+                const wallSize = 3; // 3x3 interior
+                const roofOverhang = 2;
+                
+                // --- Walls Layer ---
+                for(let wy = 0; wy < 3; wy++) {
+                    for(let wx = -wallSize; wx <= wallSize; wx++) {
+                        for(let wz = -wallSize; wz <= wallSize; wz++) {
+                            // Only edges (pillars) and mostly filled walls, leave door?
+                            // Keep it solid voxel style
+                            const isPillar = Math.abs(wx) === wallSize && Math.abs(wz) === wallSize;
+                            const color = isPillar ? COLORS.woodRed : COLORS.whiteWall;
+                            
+                            // Simple doorway logic on bottom tier
+                            if (t === 0 && wy === 0 && wz === -wallSize && Math.abs(wx) <= 1) {
+                                // Door opening - skip
+                                continue;
+                            }
+
+                            placeVoxel(x + wx, currentY + wy, z + wz, color);
+                        }
+                    }
+                }
+                currentY += 3;
+
+                // --- Roof Layer ---
+                const roofWidth = wallSize + roofOverhang;
+                
+                // Roof is stepped (curved up slightly at corners)
+                for(let ry = 0; ry < 2; ry++) { // Roof thickness
+                    const rY = currentY + ry;
+                    const stepIn = ry; // Top layer is smaller
+                    
+                    for(let rx = -roofWidth + stepIn; rx <= roofWidth - stepIn; rx++) {
+                        for(let rz = -roofWidth + stepIn; rz <= roofWidth - stepIn; rz++) {
+                            // Rim
+                            if (Math.abs(rx) >= roofWidth - stepIn - 1 || Math.abs(rz) >= roofWidth - stepIn - 1) {
+                                placeVoxel(x + rx, rY, z + rz, COLORS.roof);
+                            }
+                        }
+                    }
+                }
+                
+                // Curved Corners (Upward sweep)
+                // Add blocks at the corners one level higher
+                const cornerDist = roofWidth;
+                placeVoxel(x - cornerDist, currentY + 2, z - cornerDist, COLORS.roof);
+                placeVoxel(x + cornerDist, currentY + 2, z - cornerDist, COLORS.roof);
+                placeVoxel(x - cornerDist, currentY + 2, z + cornerDist, COLORS.roof);
+                placeVoxel(x + cornerDist, currentY + 2, z + cornerDist, COLORS.roof);
+
+                currentY += 2;
+            }
+
+            // --- Spire ---
+            for(let sy = 0; sy < 4; sy++) {
+                placeVoxel(x, currentY + sy, z, COLORS.gold);
+            }
+            // Top ornament
+            placeVoxel(x, currentY + 4, z, COLORS.woodDark);
+        }
+
+        // --- Build The World ---
+        function initWorld() {
+            buildGround();
+
+            // Build Pagoda in center
+            buildPagoda(0, 0);
+
+            // Build Trees (Random but avoiding center and paths)
+            for (let i = 0; i < 30; i++) {
+                const tx = (Math.random() - 0.5) * 70;
+                const tz = (Math.random() - 0.5) * 70;
+                const dist = Math.sqrt(tx*tx + tz*tz);
+                
+                // Avoid center stone path and Pagoda base
+                if (dist > 12 && (Math.abs(tx) > 4 || Math.abs(tz) > 4)) {
+                    buildTree(Math.round(tx), Math.round(tz));
+                }
+            }
+
+            // Build Torii Gates
+            buildTorii(0, -12, 0); // Front
+            buildTorii(12, 0, Math.PI / 2); // Right
+            buildTorii(-12, 0, -Math.PI / 2); // Left
+            // Back gate (optional, maybe forest path)
+        }
+
+        // --- Animation Loop ---
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // --- Initialization & Events ---
+        initWorld();
+        
+        // Hide loader
+        window.addEventListener('load', () => {
+            const loader = document.getElementById('loader');
+            loader.style.opacity = '0';
+            setTimeout(() => loader.style.display = 'none', 800);
+        });
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Start
+        animate();
+
+    </script>
+</body>
+</html>
