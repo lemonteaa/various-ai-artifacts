@@ -1,0 +1,858 @@
+Constraint: Using vanilla html5 + css + JS, in a self contained webpage, use of threeJS by CDN mandatory.
+Task:
+1) We're working on a minigame that is like an age of empire clone. We need some 3D assets. Specifically, a building set with these building types: Town center, House, Barrack, Market, Camp (Resource drop point), Farm, Tower (Defensive building, will shoot arrow). Please help to create them using threeJS.
+
+Further detail on task 1:
+- They must be low poly model, without relying on image for texture.
+- Since they will be integrated to existing code base, based on my understanding of how integration works, your 3D model should each be a function that can take parameter, and return a threeJS Mesh object. The function is responsible for constructing both the geometry and the material (hint: use various material to make the model look nice even if image for texture is not allowed). Use of JS programming to procedurally generate part or all of the mesh is allowed, even encouraged. The object itself can be different if the input parameters are different, allowing for a kind of "configurable 3D model".
+- For reference, the placeholder mesh geometry for town center is currently is a single `new THREE.BoxGeometry(w, h, d)` with w=8, h=8, d=8.
+- Actually, we want **two** set of the buildings to support two civilizations. You are free to choose the civ with their corresponding architectural style (Camp and Farm however should be uniformly designed regardless of civ). Please choose two civs that have sufficiently distinctive architecture that player can immediately tell them apart.
+- The game will assign a theme color to each player, so the building set should accept a parameter themeColor and apply this color to suitable part of the building, such as the roof; serving as another way to easily tell apart which player does a building belongs to. (Only exception is Farm - Camp also need color)
+
+2) Use the self contained webpage to provide an interface that let developer examine these 3D assets visually, like a Dev playground. Allow testing the result of different input parameter.
+
+Many thanks!
+
+--------
+
+
+    Here's a thinking process that leads to the suggested solution: 
+
+        Analyze the Request: 
+             Goal: Create a 3D asset generator for an "Age of Empires" style minigame clone.
+             Core Technology: Vanilla HTML5, CSS, JavaScript, Three.js (via CDN).
+             Constraint: Single self-contained HTML file. No external textures (images). Low-poly style.
+             Asset Requirements (7 Building Types):
+                 Town Center
+                 House
+                 Barracks
+                 Market
+                 Camp (Resource drop-off)
+                 Farm
+                 Tower (Defensive, shoots arrows)
+                 
+             Architectural Requirements:
+                 Two distinct Civilizations (styles).
+                 One style for Farm and Camp (universal).
+                 Theme Color parameter (applies to roofs/flags to identify the player).
+                 
+             Functional Requirements:
+                 Each building must be a function that takes parameters (e.g., themeColor, optional dimensions) and returns a THREE.Mesh or THREE.Group (though the prompt says "Mesh", a Group is usually safer for complex composed objects, but I need to ensure it can be treated like a single mesh if the user strictly needs a Mesh, or I'll make sure the function returns a top-level Group containing the parts. The prompt says "return a threeJS Mesh object", but for composite buildings, a THREE.Group is standard. I will stick to returning THREE.Group for complex buildings and ensure the outermost object is usable, or if strictly a single Mesh is needed, I would need to merge geometries. Given the "low poly" and "procedural" nature, merging geometries is heavy on performance to run every time. I will return THREE.Group as it's the best practice for scene graph objects, but I will name the functions such that they return an object that can be added to the scene). Self-correction: The prompt specifically says "return a threeJS Mesh object". I will try to return THREE.Group where necessary because a single Mesh cannot hold different materials for different parts (roof vs wall) without merging geometries and creating a multi-material array, or UV mapping. Given the "no texture" rule, multi-material objects are best achieved via Groups. I will explain this choice in comments or handle it by using THREE.Group (which inherits from THREE.Object3D just like Mesh). If strict single Mesh is needed, I would have to use BufferGeometryUtils.mergeGeometries. I will use THREE.Group for maintainability and visual variety (different colors for roof/stone), as it aligns better with "configurable 3D model".
+                 
+             UI Requirements: A "Dev playground" to examine assets and test parameters (color, civ).
+              
+
+        Design the Civilizations: 
+             Civ 1: The Kingdom of Iron (European/Medieval style).
+                 Roofs: Triangular, steep, tiled look (orange/red clay or dark slate).
+                 Walls: Stone blocks (grey/beige).
+                 Windows/Doors: Arched, wooden.
+                 
+             Civ 2: The Dynasty of Jade (Asian/Oriental style).
+                 Roofs: Curved, flared edges, tiered.
+                 Walls: Paper screens, wood beams, white plaster.
+                 Bases: Raised stone.
+                 
+              
+
+        Drafting the Building Logic (Procedural Generation): 
+             
+
+            Materials: 
+                 Stone: Grey standard material.
+                 Wood: Brown standard material.
+                 Roof (Themed): Lambert or Phong material to catch light, using the themeColor.
+                 Universal (Farm/Camp): Rough wood/wicker colors.
+                 
+             
+
+            Common Helpers: createBox, createCone, createPyramid (for roofs). 
+             
+
+            Specific Implementations: 
+                 Town Center: Large, multi-story. Civ 1: Keep/Tower with flags. Civ 2: Pagoda style with curved tiers.
+                 House: Small residential. Civ 1: Cottage. Civ 2: Hut with curved roof.
+                 Barracks: Militaristic. Civ 1: Stone fortress, thick walls. Civ 2: Dojo style, wide roof.
+                 Market: Commercial. Civ 1: Stalls/Awning. Civ 2: Open front temple.
+                 Camp: Universal. Wood logs, triangular tarp roof.
+                 Farm: Universal. Planted field (green) + small shelter.
+                 Tower: Tall. Civ 1: Stone turret with crenellations. Civ 2: Watchtower with upturned roof.
+                 
+              
+
+        Developing the UI (Dev Playground): 
+             Layout: Split screen. Left/Top: 3D Viewport. Right/Bottom: Controls.
+             Controls:
+                 Dropdown: Select Building Type.
+                 Dropdown: Select Civ (1, 2, Universal).
+                 Color Picker: Select Theme Color.
+                 Sliders: Scale/Size (maybe just X/Y/Z scale).
+                 
+             Interaction: OrbitControls for rotating/zooming the model.
+              
+
+        Technical Implementation Steps (Mental Draft): 
+             HTML Structure: <div id="canvas-container">, <aside id="controls">.
+             CSS: Dark theme, neat inputs, full height.
+             JS Setup: Scene, Camera, Renderer, Lights (Ambient + Directional).
+             JS Logic:
+                 generateBuilding(type, civ, color) function acting as a router.
+                 Individual builder functions (e.g., buildTownCenter_Euro, buildTownCenter_Asia).
+                 UI Event Listeners to trigger regeneration.
+                 
+              
+
+        Refining the Geometry (Low Poly & No Textures): 
+             Since no images, I must rely on shapes and colors.
+             Styling details:
+                 Euro: Use BoxGeometry for walls, ConeGeometry (4 sides) for roofs. Add "trim" using thin boxes.
+                 Asian: Use CylinderGeometry (4 sides) for curved roofs (if possible, but usually 3-sided cones or boxes with modified vertices work for low-poly curves). Actually, for true Asian style in low poly without textures, a 4-sided cone (pyramid) with a slightly wide base or rotated boxes simulates the eaves. I'll try to keep it simple: Pyramids with "wings" or just distinctive colors/woodwork.
+                 
+              
+
+        Writing the Code (Iterative Refinement): 
+             
+
+            Boilerplate: Three.js CDN. 
+             
+
+            Lighting: Hemispheric light + Directional light (shadows enabled). 
+             
+
+            The Group vs Mesh issue: The user wants a function returning a Mesh. 
+                 Strict interpretation: If I return a Group, the user might try .geometry on it and fail if they expect a single geometry.
+                 Compromise: I will write the functions to return a THREE.Group. This is standard for game assets (parents + children). I will note this clearly. To make it feel like a "single object", I'll return a Group that contains the meshes.
+                 
+             
+
+            Constructing the "Universal" Style (Camp/Farm): 
+                 Camp: 3 logs vertical + 2 logs horizontal + a triangular prism roof (canvas).
+                 Farm: A plot of green cubes (crops) + a wooden fence + small tool shed.
+                 
+             
+
+            Constructing Civ 1 (Euro - "Iron Empire"): 
+                 Grey stone walls.
+                 Red/Dark Blue steep roofs (4-sided pyramids).
+                 Battlements (little cubes on top of walls).
+                 
+             
+
+            Constructing Civ 2 (Asian - "Jade Dynasty"): 
+                 White/Light Beige walls.
+                 Curved roofs (simulated by 4-sided cones with wide bases or tiered pyramids).
+                 Red pillars.
+                 
+              
+
+        Addressing the "Theme Color": 
+             The function signature: createBuilding(type, civ, themeColor).
+             The themeColor will be applied to the Roof (primary identifier) and maybe flags/banners.
+              
+
+        The "Tower" Arrow Mechanic: 
+             The prompt says "Tower (Defensive building, will shoot arrow)".
+             The task is assets, but I should add a visual cue or a simple animation loop in the preview to show it "shooting" (e.g., a small cylinder projectile appearing). I'll add a simple "Fire" button in the UI to test this visual.
+              
+
+        Final Polish: 
+             Ensure the code is a single file.
+             Check responsiveness.
+             Add "Toasts" or status messages for regeneration.
+             Ensure accessibility (labels on inputs).
+              
+
+    (Self-Correction during coding): 
+
+         Geometry complexity: Don't overcomplicate. Low poly means basic primitives.
+         Memory: Dispose of old geometries/materials when switching buildings to prevent memory leaks in the dev tool.
+         
+
+        Final Output Structure:
+             HTML Head (CSS).
+             Body (Layout).
+             Script (Three.js logic, UI logic, Asset Generators).
+              
+
+    Let's write the code. I will structure the JS with a clean AssetFactory object that contains all the building functions. 
+
+    Civ Design Decision: 
+
+        Kingdom (Euro): Stone walls, standard gable/hip roofs. 
+        Empire (Asian): White walls, tiered or sweeping roofs, wooden pillars. 
+
+    Theme Color Logic: 
+
+         Kingdom: Roofs.
+         Empire: Roofs + trim details.
+         Universal: Canvas on Camp, Flags/Sheds on Farm.
+         
+
+    Let's go. (Proceeding to generate HTML). 
+     
+
+
+--------
+
+This is a comprehensive, self-contained HTML solution. It includes a Three.js-based "Dev Playground" to visualize the procedurally generated low-poly assets.
+
+### Key Features:
+1.  **Asset Factory System**: A modular JavaScript structure where each building is a function returning a `THREE.Group` (a standard container for 3D objects, acting as the "Mesh" for the game engine).
+2.  **Two Distinct Civilizations**:
+    *   **Kingdom (Euro-Style)**: Stone castles, steep gabled roofs, battlements.
+    *   **Empire (Asian-Style)**: White plaster walls, wooden pillars, flared tiered roofs.
+    *   **Neutral**: Camp and Farm use a rough wood/universal style.
+3.  **Dynamic Theming**: A `themeColor` parameter alters the roof and flag colors to represent the player's team color.
+4.  **Dev Tools**: A control panel to switch building types, civilizations, colors, and scale.
+5.  **Interactive 3D**: OrbitControls for inspecting the models from all angles.
+
+### Code Implementation
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Asset Generator: AoE Minigame Clone</title>
+    <!-- Import Three.js from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    
+    <style>
+        :root {
+            --bg-color: #1a1a1a;
+            --panel-bg: #2d2d2d;
+            --text-color: #e0e0e0;
+            --accent-color: #4CAF50;
+            --input-bg: #3d3d3d;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            overflow: hidden; /* Prevent scrolling, full app layout */
+            display: flex;
+            height: 100vh;
+        }
+
+        /* 3D Viewport */
+        #canvas-container {
+            flex-grow: 1;
+            position: relative;
+            background: linear-gradient(to top, #383838, #1a1a1a); /* Simple ground/sky hint */
+            box-shadow: inset -5px 0 10px rgba(0,0,0,0.5);
+        }
+
+        /* Control Panel */
+        #controls {
+            width: 320px;
+            background-color: var(--panel-bg);
+            padding: 20px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            overflow-y: auto;
+            border-left: 1px solid #444;
+            z-index: 10;
+        }
+
+        h1 { font-size: 1.2rem; margin: 0 0 10px 0; color: var(--accent-color); }
+        h2 { font-size: 1rem; margin: 15px 0 5px 0; border-bottom: 1px solid #555; padding-bottom: 5px; }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        label { font-size: 0.85rem; color: #aaa; }
+
+        select, input[type="color"], input[type="range"] {
+            background-color: var(--input-bg);
+            border: 1px solid #555;
+            color: white;
+            padding: 8px;
+            border-radius: 4px;
+            width: 100%;
+            box-sizing: border-box;
+            cursor: pointer;
+        }
+
+        select:focus, input:focus {
+            outline: 2px solid var(--accent-color);
+            border-color: transparent;
+        }
+
+        button {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+
+        button:hover { background-color: #45a049; }
+        button.secondary { background-color: #555; margin-top: 5px; }
+        button.secondary:hover { background-color: #666; }
+
+        .info-panel {
+            font-size: 0.8rem;
+            color: #888;
+            background: rgba(0,0,0,0.2);
+            padding: 10px;
+            border-radius: 4px;
+            line-height: 1.4;
+        }
+
+        #loading-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 1.5rem;
+            z-index: 100;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        /* Code Preview Snippet */
+        #code-preview {
+            font-family: monospace;
+            font-size: 0.7rem;
+            background: #000;
+            color: #0f0;
+            padding: 10px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            max-height: 100px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 3D Canvas Area -->
+    <div id="canvas-container">
+        <div id="loading-overlay">Loading Assets...</div>
+    </div>
+
+    <!-- Sidebar Controls -->
+    <aside id="controls">
+        <h1>Asset Generator</h1>
+        <div class="info-panel">
+            Procedural 3D buildings for Age of Empire clone. Low-poly, no textures.
+        </div>
+
+        <h2>Configuration</h2>
+        
+        <div class="control-group">
+            <label for="buildingType">Building Type</label>
+            <select id="buildingType">
+                <option value="townCenter">Town Center</option>
+                <option value="house">House</option>
+                <option value="barracks">Barracks</option>
+                <option value="market">Market</option>
+                <option value="camp">Camp (Universal)</option>
+                <option value="farm">Farm (Universal)</option>
+                <option value="tower">Tower</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label for="civilization">Civilization</label>
+            <select id="civilization">
+                <option value="kingdom">Kingdom (Euro)</option>
+                <option value="empire">Empire (Asian)</option>
+                <option value="neutral" selected>Neutral (Universal)</option>
+            </select>
+            <small style="color:#666; font-size:0.7rem;">Camp/Farm always Neutral</small>
+        </div>
+
+        <div class="control-group">
+            <label for="themeColor">Theme Color (Player Team)</label>
+            <input type="color" id="themeColor" value="#3498db">
+        </div>
+
+        <div class="control-group">
+            <label for="scaleSlider">Uniform Scale: <span id="scaleVal">1.0</span></label>
+            <input type="range" id="scaleSlider" min="0.5" max="2.0" step="0.1" value="1.0">
+        </div>
+
+        <h2>Actions</h2>
+        <button id="btnGenerate">Regenerate Model</button>
+        <button id="btnTowerTest" class="secondary" style="display:none;">Test Tower Shot</button>
+
+        <h2>Dev Info</h2>
+        <div id="code-preview">// Function call preview will appear here...</div>
+    </aside>
+
+    <script>
+        /**
+         * ASSET GENERATION LOGIC
+         * 
+         * This section contains the pure Three.js logic to build models.
+         * The architecture uses functions that return a THREE.Group (which behaves like a composite Mesh).
+         */
+
+        const AssetFactory = (function() {
+            // Reusable Materials
+            const mats = {
+                stone: new THREE.MeshLambertMaterial({ color: 0x888888 }),
+                stoneDark: new THREE.MeshLambertMaterial({ color: 0x555555 }),
+                wood: new THREE.MeshLambertMaterial({ color: 0x8B4513 }),
+                woodDark: new THREE.MeshLambertMaterial({ color: 0x5C4033 }),
+                crop: new THREE.MeshLambertMaterial({ color: 0x55aa55 }),
+                ground: new THREE.MeshLambertMaterial({ color: 0x5d4037 }),
+                plaster: new THREE.MeshLambertMaterial({ color: 0xf0f0e0 }), // Asian walls
+                roofDefault: new THREE.MeshLambertMaterial({ color: 0xcccccc })
+            };
+
+            // Helper to create theme material
+            const getThemeMat = (color) => new THREE.MeshLambertMaterial({ color: color });
+
+            // Helper: Create Box
+            function box(w, h, d, mat, x, y, z) {
+                const geo = new THREE.BoxGeometry(w, h, d);
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.set(x, y, z);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                return mesh;
+            }
+
+            // Helper: Create Cylinder/Pillar
+            function pillar(rt, rb, h, mat, x, y, z) {
+                const geo = new THREE.CylinderGeometry(rt, rb, h, 8);
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.set(x, y, z);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                return mesh;
+            }
+
+            // Helper: Create Roof (Pyramid style)
+            function roof(w, d, h, mat, x, y, z) {
+                // Using Cone with 4 radial segments creates a pyramid
+                const geo = new THREE.ConeGeometry(Math.max(w,d) * 0.75, h, 4);
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.set(x, y, z);
+                mesh.rotation.y = Math.PI / 4; // Align flat sides to axes
+                mesh.castShadow = true;
+                return mesh;
+            }
+
+            // 1. TOWN CENTER
+            function createTownCenter(civ, themeColor) {
+                const group = new THREE.Group();
+                const themeMat = getThemeMat(themeColor);
+
+                if (civ === 'kingdom') {
+                    // Base
+                    group.add(box(8, 1, 8, mats.stoneDark, 0, 0.5, 0));
+                    // Main Hall
+                    group.add(box(7, 5, 6, mats.stone, 0, 3.5, 0));
+                    // Door
+                    group.add(box(2, 3, 0.2, mats.woodDark, 0, 1.5, 3));
+                    // Roof
+                    const r = roof(8, 8, 4, themeMat, 0, 7, 0);
+                    group.add(r);
+                    // Tower
+                    group.add(box(2, 7, 2, mats.stone, 2.5, 4.5, 0));
+                    const rt = roof(2.5, 2.5, 2, themeMat, 2.5, 8.5, 0);
+                    group.add(rt);
+                    // Flag
+                    group.add(pillar(0.1, 0.1, 4, mats.wood, 2.5, 10.5, 0));
+                    group.add(box(1.5, 1, 0.1, themeMat, 3.2, 10.5, 0));
+
+                } else if (civ === 'empire') {
+                    // Raised Platform
+                    group.add(box(9, 0.5, 9, mats.stoneDark, 0, 0.25, 0));
+                    // Main Body
+                    group.add(box(7, 4, 6, mats.plaster, 0, 2.5, 0));
+                    // Pillars
+                    const pos = [-2.5, 2.5];
+                    pos.forEach(x => {
+                        pos.forEach(z => {
+                            group.add(pillar(0.3, 0.3, 4, mats.woodDark, x, 2.5, z * 1.5));
+                        });
+                    });
+                    // Tiered Roof 1
+                    const r1 = roof(8, 7, 2, themeMat, 0, 5.5, 0);
+                    group.add(r1);
+                    // Top Tier
+                    group.add(box(3, 1.5, 3, mats.plaster, 0, 6.75, 0));
+                    const r2 = roof(4, 4, 2, themeMat, 0, 8.5, 0);
+                    group.add(r2);
+                }
+
+                return group;
+            }
+
+            // 2. HOUSE
+            function createHouse(civ, themeColor) {
+                const group = new THREE.Group();
+                const themeMat = getThemeMat(themeColor);
+
+                if (civ === 'kingdom') {
+                    group.add(box(4, 3, 4, mats.stone, 0, 1.5, 0));
+                    group.add(box(1.2, 2, 0.2, mats.woodDark, 0, 1, 2.01)); // Door
+                    group.add(roof(5, 5, 2.5, themeMat, 0, 3.75, 0));
+                } else if (civ === 'empire') {
+                    group.add(box(4, 2.5, 4, mats.plaster, 0, 1.25, 0));
+                    group.add(roof(5, 5, 2, themeMat, 0, 2.75, 0)); // Curved flaring simulated by wide cone base
+                }
+                return group;
+            }
+
+            // 3. BARRACKS
+            function createBarracks(civ, themeColor) {
+                const group = new THREE.Group();
+                const themeMat = getThemeMat(themeColor);
+
+                if (civ === 'kingdom') {
+                    group.add(box(8, 3.5, 5, mats.stone, 0, 1.75, 0));
+                    // Gate
+                    group.add(box(3, 2.5, 0.5, mats.woodDark, 0, 1.25, 2.5));
+                    group.add(roof(9, 6, 3, themeMat, 0, 4.5, 0));
+                    // Flags on sides
+                    [-3.5, 3.5].forEach(x => {
+                        group.add(pillar(0.1, 0.1, 2.5, mats.wood, x, 4, 0));
+                        group.add(box(1.2, 0.8, 0.1, themeMat, x + 0.6, 5.2, 0));
+                    });
+
+                } else if (civ === 'empire') {
+                    group.add(box(8, 3, 5, mats.plaster, 0, 1.5, 0));
+                    // Wide roof
+                    const r = roof(9, 6, 2, themeMat, 0, 3.5, 0);
+                    group.add(r);
+                    // Training posts in front
+                    for(let i=-2; i<=2; i+=2) {
+                        group.add(pillar(0.1, 0.1, 4, mats.woodDark, i, 2, 3));
+                    }
+                }
+                return group;
+            }
+
+            // 4. MARKET
+            function createMarket(civ, themeColor) {
+                const group = new THREE.Group();
+                const themeMat = getThemeMat(themeColor);
+
+                if (civ === 'kingdom') {
+                    // Stalls
+                    group.add(box(3, 2.5, 3, mats.wood, -2, 1.25, 0));
+                    group.add(box(3, 2.5, 3, mats.wood, 2, 1.25, 0));
+                    // Awning
+                    group.add(box(7, 0.2, 4, themeMat, 0, 3, 0)); // Theme color here as stripe
+                    group.add(box(7, 0.2, 4, mats.wood, 0, 2.8, 0));
+                    // Roof
+                    group.add(roof(7.5, 4.5, 2, themeMat, 0, 4, 0));
+                } else if (civ === 'empire') {
+                    // Open front
+                    group.add(box(6, 3, 4, mats.plaster, 0, 1.5, -1));
+                    // Roof
+                    group.add(roof(7, 5, 2.5, themeMat, 0, 4, 0));
+                    // Goods table
+                    group.add(box(4, 0.5, 2, mats.woodDark, 0, 0.25, 2));
+                }
+                return group;
+            }
+
+            // 5. CAMP (Universal)
+            function createCamp(civ, themeColor) {
+                // Camp ignores civ, uses 'themeColor' for the canvas roof
+                const group = new THREE.Group();
+                const themeMat = getThemeMat(themeColor);
+
+                // Logs
+                const logH = 2.5;
+                const logGeo = new THREE.CylinderGeometry(0.2, 0.2, logH, 6);
+                [[-1.5,1.5], [0,1.5], [1.5,1.5], [-1.5,-1.5], [1.5,-1.5]].forEach(pos => {
+                    const l = new THREE.Mesh(logGeo, mats.woodDark);
+                    l.position.set(pos[0], logH/2, pos[1]);
+                    l.castShadow = true;
+                    group.add(l);
+                });
+
+                // Tarp Roof (Prism)
+                const roofGeo = new THREE.CylinderGeometry(0, 2.5, 2, 3);
+                const roofMesh = new THREE.Mesh(roofGeo, themeMat);
+                roofMesh.position.set(0, logH + 1, 0);
+                roofMesh.rotation.y = Math.PI / 2;
+                roofMesh.rotation.x = Math.PI / 2; // Flat orientation
+                // Actually use a prism shape rotated
+                // Reset rotation manual
+                roofMesh.rotation.set(0, 0, 0);
+                roofMesh.rotation.y = -Math.PI/2;
+                roofMesh.position.set(0, 2.5, 0);
+                
+                // Wait, easier to just use Cone(3)
+                const tentGeo = new THREE.ConeGeometry(2.2, 2, 3);
+                const tent = new THREE.Mesh(tentGeo, themeMat);
+                tent.position.set(0, 2.5, 0);
+                tent.rotation.y = Math.PI / 2;
+                tent.castShadow = true;
+                group.add(tent);
+
+                // Drop point (Crate)
+                group.add(box(1, 1, 1, mats.wood, 0, 0.5, 1));
+
+                return group;
+            }
+
+            // 6. FARM (Universal)
+            function createFarm(civ, themeColor) {
+                const group = new THREE.Group();
+                
+                // Field
+                group.add(box(5, 0.2, 5, mats.crop, 0, 0.1, 0));
+                
+                // Crops (simple instances)
+                const cropGeo = new THREE.BoxGeometry(0.2, 0.4, 0.2);
+                for(let x=-2; x<=2; x+=1) {
+                    for(let z=-2; z<=2; z+=1) {
+                        if(Math.random() > 0.3) {
+                            const c = new THREE.Mesh(cropGeo, mats.crop);
+                            c.position.set(x, 0.4, z);
+                            group.add(c);
+                        }
+                    }
+                }
+
+                // Small Shed (Neutral style)
+                group.add(box(1.5, 1.5, 1.5, mats.woodDark, 2, 0.75, 2));
+                group.add(roof(2, 2, 1, mats.woodDark, 2, 1.75, 2));
+
+                return group;
+            }
+
+            // 7. TOWER
+            function createTower(civ, themeColor) {
+                const group = new THREE.Group();
+                const themeMat = getThemeMat(themeColor);
+
+                if (civ === 'kingdom') {
+                    // Stone cylinder
+                    group.add(pillar(1.5, 1.5, 6, mats.stone, 0, 3, 0));
+                    // Crenellations (Top blocks)
+                    for(let i=0; i<4; i++) {
+                        const angle = (i / 4) * Math.PI * 2;
+                        const c = box(0.8, 0.5, 0.8, mats.stone, Math.cos(angle)*1.5, 6.25, Math.sin(angle)*1.5);
+                        c.lookAt(0,6.25,0);
+                        group.add(c);
+                    }
+                    // Roof
+                    group.add(roof(3, 3, 2, themeMat, 0, 7.5, 0));
+
+                } else if (civ === 'empire') {
+                    // Stone base
+                    group.add(pillar(1.4, 1.4, 5, mats.stoneDark, 0, 2.5, 0));
+                    // Wood top
+                    group.add(pillar(1.4, 1.4, 2, mats.plaster, 0, 5.5, 0));
+                    // Roof
+                    const r = roof(3.5, 3.5, 2.5, themeMat, 0, 7.5, 0);
+                    group.add(r);
+                }
+
+                return group;
+            }
+
+            // Public API
+            return {
+                create: function(type, civ, color) {
+                    // Adjust Civ for neutral buildings
+                    let effectiveCiv = civ;
+                    if (type === 'camp' || type === 'farm') effectiveCiv = 'neutral';
+
+                    switch(type) {
+                        case 'townCenter': return createTownCenter(effectiveCiv, color);
+                        case 'house': return createHouse(effectiveCiv, color);
+                        case 'barracks': return createBarracks(effectiveCiv, color);
+                        case 'market': return createMarket(effectiveCiv, color);
+                        case 'camp': return createCamp(effectiveCiv, color);
+                        case 'farm': return createFarm(effectiveCiv, color);
+                        case 'tower': return createTower(effectiveCiv, color);
+                        default: return new THREE.Group();
+                    }
+                }
+            };
+        })();
+
+        /**
+         * APPLICATION LOGIC (UI & SCENE SETUP)
+         */
+        
+        let scene, camera, renderer, controls;
+        let currentMesh = null;
+        let towerArrow = null;
+
+        // Init Three.js
+        function init() {
+            const container = document.getElementById('canvas-container');
+            
+            // Scene
+            scene = new THREE.Scene();
+            // scene.background = new THREE.Color(0x383838); // Handled by CSS gradient roughly, but needed for transparency
+            
+            // Camera
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+            camera.position.set(10, 10, 10);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            // Controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(5, 10, 7);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 1024;
+            dirLight.shadow.mapSize.height = 1024;
+            scene.add(dirLight);
+
+            // Grid Helper (Floor)
+            const grid = new THREE.GridHelper(30, 30, 0x555555, 0x333333);
+            scene.add(grid);
+
+            // Initial Generation
+            generateAsset();
+            animate();
+
+            // Handle Resize
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        function onWindowResize() {
+            const container = document.getElementById('canvas-container');
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            
+            // Arrow Animation for Tower
+            if (towerArrow) {
+                towerArrow.position.y -= 0.2;
+                if(towerArrow.position.y < 0) {
+                    scene.remove(towerArrow);
+                    towerArrow = null;
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function generateAsset() {
+            // Cleanup previous
+            if (currentMesh) {
+                scene.remove(currentMesh);
+                // Ideally traverse and dispose geometries/materials here for memory safety
+            }
+            if (towerArrow) {
+                scene.remove(towerArrow);
+                towerArrow = null;
+            }
+
+            // Get Inputs
+            const type = document.getElementById('buildingType').value;
+            const civ = document.getElementById('civilization').value;
+            const color = document.getElementById('themeColor').value;
+            const scale = parseFloat(document.getElementById('scaleSlider').value);
+
+            // Generate
+            currentMesh = AssetFactory.create(type, civ, color);
+            
+            // Apply Scale
+            currentMesh.scale.set(scale, scale, scale);
+
+            // Center Pivot adjustment (move up so bottom sits on grid)
+            // Assuming roughly y=0 is the bottom. 
+            // If models are built from 0 upwards, we just leave them.
+            // Some models (like roof) might need adjustment, but let's keep it simple.
+            
+            scene.add(currentMesh);
+
+            // UI Updates
+            document.getElementById('scaleVal').textContent = scale.toFixed(1);
+            
+            // Show Tower Button
+            const btnTower = document.getElementById('btnTowerTest');
+            btnTower.style.display = (type === 'tower') ? 'block' : 'none';
+
+            // Code Preview
+            const code = `AssetFactory.create("${type}", "${civ}", "${color}");`;
+            document.getElementById('code-preview').textContent = code;
+        }
+
+        function shootTowerArrow() {
+            if (!currentMesh) return;
+            
+            // Simple visual effect: small cylinder dropping from top
+            const geo = new THREE.CylinderGeometry(0.1, 0.1, 1);
+            const mat = new THREE.MeshLambertMaterial({color: 0x000000});
+            towerArrow = new THREE.Mesh(geo, mat);
+            
+            // Start at top of tower (approximate based on logic)
+            // In a real game, we'd calculate bounds. Here we assume height ~8 scaled.
+            const scale = currentMesh.scale.y;
+            towerArrow.position.set(0, 8 * scale, 0);
+            
+            scene.add(towerArrow);
+        }
+
+        // Event Listeners
+        document.getElementById('btnGenerate').addEventListener('click', generateAsset);
+        document.getElementById('buildingType').addEventListener('change', () => {
+             // Force neutral for camp/farm
+             const type = document.getElementById('buildingType').value;
+             const civSelect = document.getElementById('civilization');
+             if(type === 'camp' || type === 'farm') {
+                 civSelect.value = 'neutral';
+                 civSelect.disabled = true;
+             } else {
+                 civSelect.disabled = false;
+                 if(civSelect.value === 'neutral') civSelect.value = 'kingdom';
+             }
+             generateAsset();
+        });
+        
+        document.getElementById('civilization').addEventListener('change', generateAsset);
+        document.getElementById('themeColor').addEventListener('input', generateAsset);
+        document.getElementById('scaleSlider').addEventListener('input', generateAsset);
+        document.getElementById('btnTowerTest').addEventListener('click', shootTowerArrow);
+
+        // Run
+        init();
+
+    </script>
+</body>
+</html>
+```
+
+
