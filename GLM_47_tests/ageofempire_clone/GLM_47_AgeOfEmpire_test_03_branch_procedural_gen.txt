@@ -1,0 +1,2367 @@
+```js
+        // --- GAMEPLAY LOGIC ---
+
+        function initGame(mapSize = 200) {
+            /*// Player Setup
+            createBuilding('TownCenter', 'player', new THREE.Vector3(0, 0, 20));
+            createUnit('Villager', 'player', new THREE.Vector3(5, 0, 25));
+            createUnit('Villager', 'player', new THREE.Vector3(-5, 0, 25));
+            createUnit('Soldier', 'player', new THREE.Vector3(0, 0, 30));
+
+            // Enemy Setup
+            const enemyBase = new THREE.Vector3(60, 0, 60);
+            createBuilding('TownCenter', 'enemy', enemyBase);
+            createUnit('Villager', 'enemy', enemyBase.clone().add(new THREE.Vector3(5, 0, 5)));
+            createUnit('Villager', 'enemy', enemyBase.clone().add(new THREE.Vector3(-5, 0, 5)));
+            createUnit('Soldier', 'enemy', enemyBase.clone().add(new THREE.Vector3(0, 0, -8)));
+
+            // Resources
+            for(let i=0; i<20; i++) {
+                const x = (Math.random() - 0.5) * 200;
+                const z = (Math.random() - 0.5) * 200;
+                if (Math.abs(x) < 30 && Math.abs(z) < 30) continue;
+                createResource('Tree', new THREE.Vector3(x, 0, z));
+            }
+            createResource('GoldMine', new THREE.Vector3(30, 0, -30));
+            createResource('GoldMine', new THREE.Vector3(90, 0, 90));
+            createResource('BerryBush', new THREE.Vector3(-30, 0, -30));
+            createResource('BerryBush', new THREE.Vector3(50, 0, 50));
+            createResource('OilSeep', new THREE.Vector3(-50, 0, 50));
+            createResource('OilSeep', new THREE.Vector3(80, 0, 40));*/
+
+        // Ground
+  // Dynamic ground plane based on map size
+  const fullMapSize = mapSize * 2;
+        const groundGeo = new THREE.PlaneGeometry(fullMapSize, fullMapSize);
+        const groundMat = new THREE.MeshStandardMaterial({ color: CONFIG.COLORS.GROUND });
+        const myground = new THREE.Mesh(groundGeo, groundMat);
+        myground.rotation.x = -Math.PI / 2;
+        myground.receiveShadow = true;
+        myground.name = "Ground";
+        scene.add(myground);
+        
+        const mygrid = new THREE.GridHelper(fullMapSize, fullMapSize/10, 0x000000, 0x000000); //adjust divisions
+        mygrid.material.opacity = 0.1;
+        mygrid.material.transparent = true;
+        scene.add(mygrid);
+
+        ground = myground;
+        grid = mygrid;
+
+
+  const mapGen = new MapGeneratorV2({
+    numPlayers: 2,
+    playerName: ['player', 'enemy'],
+    mapSize: mapSize,
+  resourceDensity: 0.8,
+    //mapType: 'FOREST'
+  });
+  mapGen.generate();
+
+showMapBoundaries(fullMapSize);
+
+            state.isPlaying = true;
+            animate();
+            setInterval(aiTick, CONFIG.AI_THINK_INTERVAL);
+        }
+```
+
+```js
+        // --- PROCEDURAL GEN ALGORITHM ---
+
+function showMapBoundaries(fullMapSize) {
+  const boundary = new THREE.BoxHelper(
+    new THREE.Mesh(new THREE.BoxGeometry(fullMapSize, 1, fullMapSize)),
+    0xff0000
+  );
+  scene.add(boundary);
+}
+
+
+class MapGeneratorV2 {
+  constructor(config) {
+    this.config = {
+      mapSize: 200,
+      numPlayers: 2,
+      resourceDensity: 1.0,
+      minDistanceBetweenEntities: 3,
+      ...config
+    };
+    this.fullMapSize = this.config.mapSize * 2;
+    this.spatialGrid = new Map();
+    this.entityCounts = new Map();
+
+    this.mapCenter = new THREE.Vector3(0, 0, 0);
+  }
+  getPlayerName(idx) { return this.config.playerName[idx-1]; }
+
+  generate() {
+    this.clearPreviousMap();
+    this.placePlayerBases();
+    this.placeEssentialResources();
+    this.placeSecondaryResources();
+  }
+
+  clearPreviousMap() {
+    this.spatialGrid.clear();
+    this.entityCounts.clear();
+  }
+
+  createStartingResources(basePosition, playerId) {
+    // Berry bushes
+    this.placeResourceCluster('BerryBush', basePosition, {
+      count: 2 + Math.floor(2 * this.config.resourceDensity),
+      minDistance: 8,
+      maxDistance: 15
+    });
+
+    // Gold mine
+    this.placeResourceCluster('GoldMine', basePosition, {
+      count: 1,
+      minDistance: 10,
+      maxDistance: 20
+    });
+
+    // Initial trees
+    this.placeResourceCluster('Tree', basePosition, {
+      count: 4 + Math.floor(2 * this.config.resourceDensity),
+      minDistance: 6,
+      maxDistance: 12,
+      clusterRadius: 3
+    });
+  }
+
+  placeEssentialResources() {
+    // Global gold mines
+    this.placeResourceCluster('GoldMine', this.mapCenter, {
+      count: Math.floor(3 * this.config.resourceDensity),
+      minDistance: 40,
+      maxDistance: this.config.mapSize * 0.8,
+      clusterCount: 2
+    });
+
+    // Strategic resources between players
+    this.placeBetweenPlayers('BerryBush', {
+      countPerPair: 2,
+      minDistanceFromPlayers: 30
+    });
+  }
+  placeSecondaryResources() {
+    // Forest generation with poisson disk sampling
+    //this.poissonDiskSampling('Tree', {
+    //  minDistance: 8,
+    //  maxCount: 100 * this.config.resourceDensity,
+    //  exclusionZones: this.getPlayerZones()
+    //});
+
+    // Scattered decorative resources
+    /*this.scatterResources(['Deer', 'Stone'], {
+      density: 0.02 * this.config.resourceDensity,
+      exclusionRadius: 30
+    });*/
+  }
+
+  placePlayerBases() {
+    this.playerBasePositions = this.calculateCircularPositions(
+      this.config.numPlayers,
+      this.config.mapSize * 0.3
+    );
+
+    this.playerBasePositions.forEach((pos, idx) => {
+      createBuilding('TownCenter', this.getPlayerName(idx+1), pos);
+      this.createStartingUnits(pos, idx+1);
+      this.createStartingResources(pos, idx+1);
+    });
+  }
+
+  createStartingUnits(pos, playerId) {
+            createUnit('Villager', this.getPlayerName(playerId), pos.clone().add(new THREE.Vector3(5, 0, 5)));
+            createUnit('Villager', this.getPlayerName(playerId), pos.clone().add(new THREE.Vector3(-5, 0, 5)));
+            createUnit('Soldier',  this.getPlayerName(playerId), pos.clone().add(new THREE.Vector3(0, 0, -8)));
+  }
+
+  calculateCircularPositions(count, radius) {
+    const positions = [];
+    const angleStep = (2 * Math.PI) / count;
+    const center = new THREE.Vector3(0, 0, 0);
+
+    for(let i = 0; i < count; i++) {
+      const angle = angleStep * i;
+      const pos = new THREE.Vector3(
+        Math.cos(angle) * radius,
+        0,
+        Math.sin(angle) * radius
+      );
+      
+      if(this.isValidPosition(pos, 10)) {
+        positions.push(pos);
+      } else {
+        // Fallback linear placement
+        pos.setX(-radius + (2*radius/(count-1))*i);
+        positions.push(pos);
+      }
+    }
+    return positions;
+  }
+
+  placeResourceCluster(type, center, options) {
+    const count = Math.floor(options.count * this.config.resourceDensity);
+    const clusterRadius = options.clusterRadius || 0;
+    let placed = 0;
+
+    while(placed < count) {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = options.minDistance + 
+        Math.random() * (options.maxDistance - options.minDistance);
+      
+      const pos = center.clone().add(
+        new THREE.Vector3(
+          Math.cos(angle) * distance,
+          0,
+          Math.sin(angle) * distance
+        )
+      );
+
+      if(clusterRadius > 0) {
+        pos.add(new THREE.Vector3(
+          (Math.random() - 0.5) * clusterRadius,
+          0,
+          (Math.random() - 0.5) * clusterRadius
+        ));
+      }
+
+      if(this.tryPlaceEntity(pos, type)) {
+        placed++;
+      }
+    }
+  }
+
+  placeBetweenPlayers(type, options) {
+    //const playerPositions = Array.from({length: this.config.numPlayers}, 
+    //  (_,i) => scene.getObjectByName(`TownCenter_player${i+1}`).position);
+    //this.playerBasePositions
+    const playerPositions = this.playerBasePositions;
+
+    for(let i = 0; i < playerPositions.length; i++) {
+      for(let j = i+1; j < playerPositions.length; j++) {
+        const midpoint = new THREE.Vector3()
+          .addVectors(playerPositions[i], playerPositions[j])
+          .multiplyScalar(0.5);
+        
+        const dir = new THREE.Vector3()
+          .subVectors(playerPositions[j], playerPositions[i])
+          .normalize();
+        
+        const perp = new THREE.Vector3(-dir.z, 0, dir.x);
+
+        for(let k = 0; k < options.countPerPair; k++) {
+          const offset = perp.clone()
+            .multiplyScalar((Math.random() - 0.5) * options.minDistanceFromPlayers);
+            
+          const pos = midpoint.clone().add(offset);
+          
+          if(this.tryPlaceEntity(pos, type)) {
+            createResource(type, pos);
+          }
+        }
+      }
+    }
+  }
+
+  poissonDiskSampling(type, options) {
+    const minDist = options.minDistance;
+    const gridSize = minDist / Math.sqrt(2);
+    const grid = Array(Math.ceil(this.fullMapSize / gridSize))
+      .fill().map(() => Array(Math.ceil(this.fullMapSize / gridSize)).fill(false));
+    
+    const points = [];
+    const active = [];
+    const maxCount = Math.min(options.maxCount, 
+      (this.fullMapSize**2 * this.config.resourceDensity) / (minDist**2 * Math.PI));
+
+    // Initial point
+    const first = this.randomPosition(options.exclusionZones);
+    points.push(first);
+    active.push(first);
+    this.tryPlaceEntity(first, type);
+
+    while(active.length > 0 && points.length < maxCount) {
+      const idx = Math.floor(Math.random() * active.length);
+      const point = active[idx];
+      let found = false;
+
+      for(let i = 0; i < 30; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = minDist + Math.random() * minDist;
+        const newPoint = point.clone().add(
+          new THREE.Vector3(
+            Math.cos(angle) * dist,
+            0,
+            Math.sin(angle) * dist
+          )
+        );
+
+        if(this.isValidPosition(newPoint) && 
+           this.isFarFromOthers(newPoint, minDist, grid, gridSize) &&
+           !this.inExclusionZone(newPoint, options.exclusionZones)) {
+          points.push(newPoint);
+          active.push(newPoint);
+          this.tryPlaceEntity(newPoint, type);
+          found = true;
+          break;
+        }
+      }
+
+      if(!found) active.splice(idx, 1);
+    }
+  }
+
+  scatterResources(types, options) {
+    types.forEach(type => {
+      const count = Math.floor(
+        this.fullMapSize**2 * options.density * this.config.resourceDensity
+      );
+      
+      for(let i = 0; i < count; i++) {
+        let pos;
+        let attempts = 0;
+        
+        do {
+          pos = this.randomPosition(options.exclusionZones);
+          attempts++;
+        } while(attempts < 100 && 
+          !this.tryPlaceEntity(pos, type, options.exclusionRadius));
+        
+        if(pos) createResource(type, pos);
+      }
+    });
+  }
+
+  // Helper methods
+  tryPlaceEntity(pos, type, exclusionRadius = this.config.minDistanceBetweenEntities) {
+    if(!this.isValidPosition(pos)) return false;
+    
+    const gridPos = this.toGridCoordinates(pos);
+    const key = `${gridPos.x},${gridPos.y}`;
+    
+    // Check spatial grid
+    for(let x = -1; x <= 1; x++) {
+      for(let z = -1; z <= 1; z++) {
+        const checkKey = `${gridPos.x+x},${gridPos.y+z}`;
+        if(this.spatialGrid.has(checkKey)) return false;
+      }
+    }
+
+    this.spatialGrid.set(key, { type, pos });
+    return true;
+  }
+
+  isValidPosition(pos, margin = 0) {
+    return Math.abs(pos.x) <= this.config.mapSize - margin &&
+           Math.abs(pos.z) <= this.config.mapSize - margin;
+  }
+
+  randomPosition(exclusionZones = []) {
+    let pos;
+    do {
+      pos = new THREE.Vector3(
+        (Math.random() - 0.5) * this.fullMapSize,
+        0,
+        (Math.random() - 0.5) * this.fullMapSize
+      );
+    } while(exclusionZones.some(zone => zone.distanceToSquared(pos) < zone.radius**2));
+    
+    return pos;
+  }
+
+  toGridCoordinates(pos) {
+    const cellSize = this.config.minDistanceBetweenEntities;
+    return {
+      x: Math.floor((pos.x + this.config.mapSize) / cellSize),
+      y: Math.floor((pos.z + this.config.mapSize) / cellSize)
+    };
+  }
+}
+
+const MAP_PRESETS = {
+  FOREST: {
+    resourceDensity: 1.2,
+    treeClusterSize: 8
+  },
+  GOLD_RUSH: {
+    goldDensity: 1.5,
+    startingGold: 2
+  },
+  BARREN: {
+    resourceDensity: 0.7,
+    treeClusterSize: 4
+  }
+};
+// For different device capabilities:
+const PERFORMANCE_PROFILES = {
+  LOW: 150,    // 300x300 total area
+  MEDIUM: 200, // 400x400 (original size)
+  HIGH: 300    // 600x600
+};
+
+
+```
+
+```
+Above is a code snippet of an age of empire clone in html5 + threejs. In the random map game mode, we want an algorithm to procedurally generate a map.
+
+Requirements:
+
+    Random placement of beginning town center/settlement
+    Fairness in amount and proximity of key resources (food/berry, gold mine, initial straggler tree) for players
+    Enough clear space in the immediate neighborhood of beginning town center for all player
+    Random distribution of other remaining resources, such as forest.
+    Common sense/reasonable - eg don't have crazy amount of gold mines
+    No terrain supported yet so skip that part, but "emulating terrain with resource distribution" can be a sketch goal if you want. In that case provide multiple map types. The map is flat.
+    For person/units - existing setup (fixed placement relative to TC) is okay
+    Good engineering practise - loose coupling, configurable map (eg resource richness - high/medium/low, number of players, map size)
+    Do limit the maximum total number of game entity as this is intended to be a lightweight game and run on less capable computer.
+    The oil resource is a mistake - please ignore and make no placement of that.
+
+Quick followup: I have a worry about out of bound because the code didn't systematically make the map size configurable. The relevant code snippet is: ...
+Based on above, what are the likely intended coordinate limit of the original game? Do you need to make any adjustment to your code above? How about extra setup in my game code?
+
+Wait, you MapGenerator code is **incomplete**. Please provide a **full** implementation with these missing methods filled in (and check for missing attributes as well):
+calculateCircularPositions
+placeResourceCluster
+placeBetweenPlayers
+poissonDiskSampling
+scatterResources
+
+Also make sure updated code have incorporated the mapsize change mentioned in last round.
+```
+
+Above is the context of a subtask I am working on. First codeblock is the existing function to init a new game. Commented out part is the working (but somewhat static) algorithm to generate a map. Second codeblock is the new procedural map generator written by another AI. Third block is a transcript of only the user side prompts (multi-rounds). It is apparent that AI failed as it persistently neglected some method in its class, make assumptions that doesn't hold in the actual setup, etc. I have already used manual labour to fix it to a state that the game runs, but the result is completely disappointing - **all** of the juicy part (resource placement both within settlement and throughout the map) have completely failed, while the only part that didn't fail is mostly written by human instead. Can you patch things up to restore the original vision of a procedurally generated map that is actually meangingfully nontrivial?
+
+
+
+--------
+
+
+
+        Analyze the User's Request and Situation: 
+             Context: The user is building an Age of Empires clone in HTML5 + Three.js.
+             Current State: They have a working but static map generation script (commented out) and a broken/incomplete procedural map generator (MapGeneratorV2) written by a previous AI. The previous AI failed to implement key methods (calculateCircularPositions, placeResourceCluster, placeBetweenPlayers, poissonDiskSampling, scatterResources) or implemented them poorly, leading to zero resource placement.
+             Goal: Provide a complete, working implementation of MapGeneratorV2 (or a similar class) that generates maps procedurally.
+             Requirements:
+                 Random placement of Town Centers (TCs).
+                 Fair distribution of starting resources (Berries, Gold, Trees).
+                 Clear space around TCs.
+                 Random distribution of forests and extra gold/berries across the map.
+                 Common sense constraints (no crazy resource clumping).
+                 No terrain (flat map), but "emulate terrain with resources" via map types (Forest, Gold Rush, etc.).
+                 Loose coupling, configurability (richness, players, size).
+                 Performance limits (max entities).
+                 NO OIL.
+                 Configurable Map Size: The previous prompt hinted at issues with coordinate limits.
+                 Fixing the code: The user specifically noted the provided code in the prompt was "incomplete" (missing methods/attributes) and asked for the missing methods to be filled in properly.
+                 
+              
+
+        Analyze the Existing/Provided Code Snippets: 
+             
+
+            Snippet 1 (initGame): 
+                 Calls new MapGeneratorV2({...}).generate().
+                 Sets ground and grid size based on fullMapSize.
+                 Uses createBuilding, createUnit, createResource global functions (assumed to exist).
+                 
+             
+
+            Snippet 2 (The Failed Generator): 
+                 The structure is there, but logic is flawed or missing.
+                 this.spatialGrid is used but tryPlaceEntity logic seems simplistic (checking immediate neighbors only, not minDistance).
+                 placeResourceCluster uses Math.random() within annuli, which is fine.
+                 poissonDiskSampling is complex but the implementation provided looks like a standard algorithm; however, it references options/methods not fully defined in the context (e.g., exclusionZones generation).
+                 calculateCircularPositions has a fallback linear placement that might overlap if the circle fails.
+                 
+              
+
+        Identifying the Gaps & Logic Errors to Fix: 
+             Coordinate System: The map goes from -mapSize to +mapSize. fullMapSize is mapSize * 2.
+             Spatial Hashing/Overlap Detection: The tryPlaceEntity method needs to be robust. The provided snippet used a coarse grid check but didn't actually measure distance to existing entities, just if a grid cell was occupied. This causes resources to spawn on top of each other if minDistance < gridCellSize.
+             Map Types: The MAP_PRESETS are defined but not passed to the generator or used to change parameters.
+             Poisson Disk: This is crucial for forests. It needs to be solid.
+             Fairness: Starting resources need to be deterministic per player relative to their TC, but the TC position is random.
+             Exclusion Zones: We need to protect player base areas from random spawning (forests shouldn't spawn inside the base).
+             Entity Limits: We need to track the number of objects spawned to avoid crashing the browser.
+              
+
+        Designing the Solution (Mental Draft): 
+             Class Structure: MapGeneratorV2.
+             Config: Map size, player count, resource density, preset type.
+             State: List of placed entities (for collision detection).
+             Method generate():
+                Clear old map (if applicable, though usually we just reset scene, but logic handles it). 
+                Determine player positions (Circular or Random). 
+                Loop players -> Place TC, Units, Starting Resources. 
+                Define Exclusion Zones (circles around players). 
+                Generate Global Resources (Forests via Poisson, Gold/Berry via Clusters/Scatter). 
+             Collision: Brute force distance check is too slow (O(N2) 
+            ). Spatial grid is better. Since the user wants a "complete implementation," I'll implement a simple spatial grid.
+                 Grid Cell Size = minDistance.
+                 Key = ${x_cell},${z_cell}.
+                 Check 3x3 neighbors around the target coordinate.
+                 
+              
+
+        Refining the Logic (Step-by-Step Implementation Plan): 
+             Config Object: Merge defaults with user input.
+             calculateCircularPositions: Ensure they don't spawn on the exact edge.
+             createStartingResources: Hardcoded logic. 2 Berry, 1 Gold, ~8 Trees near TC. Use polar coordinates for placement relative to the TC.
+             tryPlaceEntity(pos, minDist):
+                Check bounds. 
+                Check collision with existing entities via spatial grid. 
+                Add to grid if valid. 
+             placeResourceCluster: Pick a center, then scatter points around it using the collision checker.
+             poissonDiskSampling (Forests): This is the heavy lifter.
+                Pick random point. 
+                Add to active list. 
+                While active not empty:
+                     Pick random point from active.
+                     Try to place k neighbors (standard Bridson algorithm) at random angle/dist [r,2r] 
+                    .
+                     If success, add to grid, add to active.
+                     If fail after k attempts, remove from active.
+                      
+             Map Presets: Adjust density/radius variables based on mapType.
+              
+
+        Addressing Specific User Concerns: 
+             Coordinate Limit: The user uses mapSize = 200. The ground is PlaneGeometry(fullMapSize, fullMapSize). The limits are -200 to 200.
+             Missing Methods: I will provide the full class with all methods implemented.
+             Missing Attributes: Ensure this.spatialGrid, this.entityCounts, this.mapCenter are initialized.
+             Oil: Explicitly filter out 'OilSeep' if it appears in config, or just don't call it.
+              
+
+        Drafting the Code (Iterative refinement): 
+             Helper getRandomPointInAnnulus: Useful for clusters.
+             Spatial Grid: A JS Map where keys are "x,y" strings and values are just boolean (occupied) or the object. Boolean is enough for collision, but storing the Vector3 is good for debugging.
+             Performance: Limit maxRetries when trying to place something. If the map is too full, stop.
+              
+
+        Writing the actual code structure (incorporating into the final response): 
+             Constructor: Handle presets.
+             Bases: Ensure clear radius.
+             Resources:
+                 Trees: High density, clumping. Use Poisson.
+                 Gold: Medium density, clusters of 1.
+                 Berries: Low density, small clusters.
+                 
+              
+
+        Refining the MapGeneratorV2 for the User: 
+             The user's initGame snippet shows mapGen.generate().
+             I need to make sure I don't use external variables not defined in the snippet (like CONFIG if it's not global, but CONFIG.AI_THINK_INTERVAL was used, so CONFIG is likely global). I'll rely on CONFIG not being needed inside the class, passed in instead.
+             Self-Correction on tryPlaceEntity: The user's provided snippet had a spatialGrid but the logic was if (this.spatialGrid.has(checkKey)) return false. This logic implies minDistanceBetweenEntities determines the grid cell size. If I set grid cell size to minDistance, and I check the 3x3 neighbors, I guarantee no overlaps within minDistance. This is efficient and correct.
+              
+
+        Final Code Assembly: (This leads to the provided solution). 
+             Define MapGeneratorV2.
+             Implement generate.
+             Implement placePlayerBases.
+             Implement placeResources.
+             Implement poissonDiskSampling.
+             Implement Helper tryPlaceEntity.
+              
+
+        Review against constraints: 
+             Random TC placement? Yes (calculateCircularPositions).
+             Fairness? Yes, identical starting resource logic for all players.
+             Clear space? Yes, spatial grid prevents overlap.
+             No Oil? Checked.
+             Map Size Config? Handled in constructor.
+             Missing methods filled? Yes.
+              
+
+        Adding the "Extra Setup" advice: The user asked about coordinate limits and extra setup. 
+             Limit: -mapSize to +mapSize.
+             Setup: Ensure createBuilding, createUnit, createResource are defined globally before this runs.
+              
+
+        Final Polish: ensuring the JS syntax is clean and comments explain why things are happening (especially the Poisson algorithm).  
+
+    (Self-Correction during coding the Poisson algorithm): The standard algorithm requires a grid for O(1) 
+     lookups. I'll implement a this.grid array or map specific to the Poisson step or reuse the main spatial grid. Reusing the main spatial grid is better because it prevents global overlaps (trees overlapping with gold). 
+
+    Let's write the code. (Proceeds to generate the JS block). 
+
+    Note on CONFIG: The user's code references CONFIG. I will assume it exists or pass config directly. I will pass config directly in the constructor to be safe and loosely coupled as requested. 
+
+    Note on scene: The code adds objects to the global scene. I must assume scene is available. 
+
+    Refining calculateCircularPositions: I'll add a check to ensure positions aren't too close to the edge (-mapSize + buffer). 
+
+    Refining placeBetweenPlayers: The user's previous code had this. It's good for strategy. I'll keep it. 
+
+    Let's construct the final response. Use the user's provided code as a base but replace the broken class. Include a "How to use" section. 
+
+    Wait, the user asked about coordinate limit of the original game.
+    In initGame(mapSize = 200), fullMapSize is 400.
+    Ground is 400x400.
+    Coordinates go from x: -200 to 200, z: -200 to 200.
+    The initGame snippet shows manual resource generation with (Math.random() - 0.5) * 200.
+    This implies the limit is strictly [-mapSize, mapSize].
+    I will enforce this check in isValidPosition. 
+
+    Let's do this. I will provide the robust MapGeneratorV2 class. I will also fix the initGame integration slightly to ensure it flows well. 
+
+    One detail: The user mentioned "The oil resource is a mistake - please ignore and make no placement of that." I will verify no 'OilSeep' strings are in the logic. 
+
+    Final check of the MapGeneratorV2 plan: 
+
+        Config: Merge defaults. 
+        Setup: Spatial grid cell size = minDistance. 
+        Players: Place TC. Add "Safe Zone" to exclusion list. 
+        Starting Resources: Clusters around TCs. 
+        Global Resources:
+             Gold: Scattered clusters.
+             Berries: Scattered clusters.
+             Forest: Poisson Disk (heavy lifting).
+              
+        Performance: Cap max total entities. 
+
+    Looks solid. Ready to generate output. 
+     
+
+
+--------
+
+
+
+
+Here is the complete, patched implementation of the `MapGeneratorV2` class.
+
+### Analysis of the Issues
+1.  **Coordinate Limits**: In `initGame`, `mapSize` is passed (e.g., 200). The `PlaneGeometry` is created with `fullMapSize` (e.g., 400). This means the valid coordinate range is from `-mapSize` to `+mapSize`.
+2.  **Spatial Grid**: The original implementation had the right idea but failed to implement robust collision detection. The spatial grid must effectively ensure no two entities overlap within `minDistance`.
+3.  **Poisson Disk**: This is the standard algorithm for generating non-overlapping random distributions (perfect for forests). The previous implementation was incomplete. I have provided a full, optimized Bridson's algorithm implementation.
+4.  **Resource Logic**: I have separated "Essential" (starting) resources from "Secondary" (map-wide) resources to ensure fairness.
+
+### The Code
+Replace your existing `MapGeneratorV2` class with this complete version. I have ensured `createResource` is never called with `'OilSeep'` and all methods are fully implemented.
+
+```javascript
+class MapGeneratorV2 {
+    constructor(config) {
+        // Merge provided config with defaults
+        this.config = {
+            mapSize: 200,             // Radius of the map (Total width = mapSize * 2)
+            numPlayers: 2,
+            playerName: ['player', 'enemy'],
+            resourceDensity: 1.0,     // Multiplier for amounts
+            minDistanceBetweenEntities: 4, // Minimum space between trees/mines
+            mapType: 'STANDARD',      // STANDARD, FOREST, GOLD_RUSH
+            ...config
+        };
+
+        // Calculate derived values
+        this.fullMapSize = this.config.mapSize * 2;
+        
+        // Spatial Grid for collision detection
+        // Grid cell size should be at least the min entity distance
+        this.gridSize = this.config.minDistanceBetweenEntities;
+        this.spatialGrid = new Map(); // Key: "x,z", Value: true
+        
+        // Track counts to avoid infinite loops or browser crashes
+        this.entityCounts = { Tree: 0, GoldMine: 0, BerryBush: 0, Stone: 0 };
+        this.maxEntities = 2000; // Safety cap for lightweight devices
+
+        this.playerBasePositions = [];
+        this.exclusionZones = []; // Areas where random resources cannot spawn (Player bases)
+    }
+
+    getPlayerName(idx) {
+        return this.config.playerName[idx] || `player${idx+1}`;
+    }
+
+    generate() {
+        // 1. Setup
+        this.clearPreviousMap();
+
+        // 2. Place Players and their immediate resources
+        this.placePlayerBases();
+
+        // 3. Define Exclusion Zones (Don't spawn forests on top of Town Centers)
+        this.playerBasePositions.forEach(pos => {
+            this.exclusionZones.push({ pos: pos, radius: 25 });
+        });
+
+        // 4. Place Map Resources
+        this.placeMapResources();
+    }
+
+    clearPreviousMap() {
+        this.spatialGrid.clear();
+        this.playerBasePositions = [];
+        this.exclusionZones = [];
+        // Note: We do not clear scene objects here as initGame usually handles scene reset,
+        // or we assume the scene is fresh.
+    }
+
+    // --- PLAYER LOGIC ---
+
+    placePlayerBases() {
+        // Arrange players in a circle around the center
+        const radius = this.config.mapSize * 0.35;
+        const angleStep = (2 * Math.PI) / this.config.numPlayers;
+
+        for (let i = 0; i < this.config.numPlayers; i++) {
+            const angle = angleStep * i;
+            const pos = new THREE.Vector3(
+                Math.cos(angle) * radius,
+                0,
+                Math.sin(angle) * radius
+            );
+
+            this.playerBasePositions.push(pos);
+
+            // Create Building
+            createBuilding('TownCenter', this.getPlayerName(i), pos);
+
+            // Register the TC position in the grid so nothing spawns on it
+            this.registerEntity(pos);
+
+            // Create Units (Fixed relative positions)
+            this.createStartingUnits(pos, i);
+            
+            // Create Starting Resources (Fair distribution)
+            this.createStartingResources(pos);
+        }
+    }
+
+    createStartingUnits(basePos, playerIdx) {
+        const offset = 8;
+        const unitPositions = [
+            new THREE.Vector3(offset, 0, offset),
+            new THREE.Vector3(-offset, 0, offset),
+            new THREE.Vector3(0, 0, -offset)
+        ];
+
+        unitPositions.forEach((p, i) => {
+            const type = i === 2 ? 'Soldier' : 'Villager';
+            const finalPos = basePos.clone().add(p);
+            createUnit(type, this.getPlayerName(playerIdx), finalPos);
+            // Don't strictly need to register units in the resource grid, 
+            // but useful for collision if we want that.
+        });
+    }
+
+    createStartingResources(basePos) {
+        // Deterministic relative placement for fairness
+        
+        // 1. Berries (close by)
+        this.placeResourceCluster('BerryBush', basePos, {
+            count: 2, 
+            minDistance: 8, 
+            maxDistance: 12, 
+            clusterRadius: 3
+        });
+
+        // 2. Gold (medium distance)
+        this.placeResourceCluster('GoldMine', basePos, {
+            count: 1, 
+            minDistance: 12, 
+            maxDistance: 18, 
+            clusterRadius: 0 
+        });
+
+        // 3. Trees (Woodline)
+        // More trees in "Forest" mode
+        const treeCount = (this.config.mapType === 'FOREST') ? 10 : 6;
+        this.placeResourceCluster('Tree', basePos, {
+            count: treeCount, 
+            minDistance: 10, 
+            maxDistance: 20, 
+            clusterRadius: 8
+        });
+    }
+
+    // --- MAP RESOURCE LOGIC ---
+
+    placeMapResources() {
+        const density = this.config.resourceDensity;
+        const center = new THREE.Vector3(0,0,0);
+
+        // A. Global Forest (Using Poisson Disk for natural look)
+        // Forest density depends on map type
+        let forestDensity = 0.8; // Default
+        if (this.config.mapType === 'FOREST') forestDensity = 1.4;
+        if (this.config.mapType === 'GOLD_RUSH') forestDensity = 0.5;
+
+        this.poissonDiskSampling('Tree', {
+            minDistance: 5,
+            maxCount: Math.floor(300 * density * forestDensity),
+            exclusionZones: this.exclusionZones
+        });
+
+        // B. Global Gold Mines
+        let goldCount = Math.floor(4 * density);
+        if (this.config.mapType === 'GOLD_RUSH') goldCount = Math.floor(10 * density);
+        
+        this.placeScatteredResources('GoldMine', {
+            count: goldCount,
+            minDistance: 20, // Distance from base
+            clusterRadius: 0
+        });
+
+        // C. Global Berry Bushes / Stone
+        this.placeScatteredResources('BerryBush', {
+            count: Math.floor(6 * density),
+            minDistance: 15,
+            clusterRadius: 4
+        });
+
+        // D. Strategic resources between players
+        this.placeBetweenPlayers('GoldMine');
+    }
+
+    // --- PLACEMENT ALGORITHMS ---
+
+    /**
+     * Places a group of resources randomly within a ring (annulus) around a center.
+     */
+    placeResourceCluster(type, center, options) {
+        const { count, minDistance, maxDistance, clusterRadius } = options;
+        let placed = 0;
+
+        for (let i = 0; i < count * 3; i++) { // Retry multiplier
+            if (placed >= count) break;
+            if (this.getTotalEntities() > this.maxEntities) break;
+
+            // Random angle and distance
+            const angle = Math.random() * Math.PI * 2;
+            const dist = minDistance + Math.random() * (maxDistance - minDistance);
+            
+            let pos = new THREE.Vector3(
+                center.x + Math.cos(angle) * dist,
+                0,
+                center.z + Math.sin(angle) * dist
+            );
+
+            // Add cluster jitter
+            if (clusterRadius > 0) {
+                pos.x += (Math.random() - 0.5) * clusterRadius * 2;
+                pos.z += (Math.random() - 0.5) * clusterRadius * 2;
+            }
+
+            if (this.tryPlaceEntity(pos, type)) {
+                createResource(type, pos);
+                placed++;
+            }
+        }
+    }
+
+    /**
+     * Places individual resources scattered across the map.
+     */
+    placeScatteredResources(type, options) {
+        const { count, minDistance, clusterRadius } = options;
+        let placed = 0;
+        let attempts = 0;
+        const maxAttempts = count * 20; 
+
+        while (placed < count && attempts < maxAttempts) {
+            if (this.getTotalEntities() > this.maxEntities) break;
+            attempts++;
+
+            // Random position on map
+            const pos = new THREE.Vector3(
+                (Math.random() - 0.5) * this.fullMapSize,
+                0,
+                (Math.random() - 0.5) * this.fullMapSize
+            );
+
+            // Validate against bases and other entities
+            if (this.isValidGlobalPosition(pos, minDistance)) {
+                // We place a cluster here if radius > 0
+                if (clusterRadius > 0) {
+                    // Determine cluster size (e.g. 1 to 3 bushes)
+                    const clusterSize = 1 + Math.floor(Math.random() * 3);
+                    let localPlaced = 0;
+                    for(let k=0; k<clusterSize; k++) {
+                         const offset = new THREE.Vector3(
+                            (Math.random()-0.5)*clusterRadius*2, 0, 
+                            (Math.random()-0.5)*clusterRadius*2
+                        );
+                        if(this.tryPlaceEntity(pos.clone().add(offset), type)) {
+                            createResource(type, pos.clone().add(offset));
+                            localPlaced++;
+                        }
+                    }
+                    if(localPlaced > 0) placed++;
+                } else {
+                    // Single entity
+                    if (this.tryPlaceEntity(pos, type)) {
+                        createResource(type, pos);
+                        placed++;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Places resources strictly between two player bases to incentivize conflict/map control.
+     */
+    placeBetweenPlayers(type) {
+        for (let i = 0; i < this.playerBasePositions.length; i++) {
+            for (let j = i + 1; j < this.playerBasePositions.length; j++) {
+                const p1 = this.playerBasePositions[i];
+                const p2 = this.playerBasePositions[j];
+
+                const midpoint = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
+                
+                // Place one resource somewhat near the midpoint but slightly randomized
+                const pos = midpoint.clone().add(new THREE.Vector3(
+                    (Math.random() - 0.5) * 15,
+                    0,
+                    (Math.random() - 0.5) * 15
+                ));
+
+                // Ensure it's not too close to base (midpoint should handle this, but safety check)
+                if (this.tryPlaceEntity(pos, type)) {
+                    createResource(type, pos);
+                }
+            }
+        }
+    }
+
+    /**
+     * Poisson Disk Sampling Algorithm.
+     * Generates points that are randomly distributed but no closer than `minDistance`.
+     * Ideal for forests.
+     */
+    poissonDiskSampling(type, options) {
+        const { minDistance, maxCount, exclusionZones } = options;
+        
+        // Create a grid for the algorithm to speed up neighbor checks
+        const cellSize = minDistance / Math.sqrt(2);
+        // Determine grid dimensions based on map size
+        const gridWidth = Math.ceil(this.fullMapSize / cellSize);
+        const gridHeight = Math.ceil(this.fullMapSize / cellSize);
+        
+        // Initialize grid array (null = empty)
+        const grid = new Array(gridWidth * gridHeight).fill(null);
+        
+        const processList = [];
+        let points = [];
+
+        // Helper: Convert world pos to grid index
+        const getGridIdx = (vec) => {
+            const gx = Math.floor((vec.x + this.config.mapSize) / cellSize);
+            const gy = Math.floor((vec.z + this.config.mapSize) / cellSize);
+            return { x: gx, y: gy, idx: gx + gy * gridWidth };
+        };
+
+        // Helper: Check if point is valid
+        const isValid = (p) => {
+            // 1. Check Map Bounds
+            if (!this.isValidPosition(p, minDistance)) return false;
+
+            // 2. Check Exclusion Zones (Player bases)
+            for (let zone of exclusionZones) {
+                if (p.distanceTo(zone.pos) < zone.radius) return false;
+            }
+
+            // 3. Check neighbors in algorithm grid
+            const g = getGridIdx(p);
+            
+            // Check 5x5 neighborhood around the cell
+            for (let i = -2; i <= 2; i++) {
+                for (let j = -2; j <= 2; j++) {
+                    const nx = g.x + i;
+                    const ny = g.y + j;
+                    
+                    if (nx >= 0 && nx < gridWidth && ny >= 0 && ny < gridHeight) {
+                        const neighbor = grid[nx + ny * gridWidth];
+                        if (neighbor) {
+                            const d2 = p.distanceToSquared(neighbor);
+                            if (d2 < minDistance * minDistance) {
+                                return false; // Too close to existing point
+                            }
+                        }
+                    }
+                }
+            }
+            return true;
+        };
+
+        // Start with a random point
+        let firstPoint = new THREE.Vector3(
+            (Math.random() - 0.5) * this.fullMapSize,
+            0,
+            (Math.random() - 0.5) * this.fullMapSize
+        );
+        
+        // Ensure first point is not in exclusion zone
+        let foundStart = false;
+        for(let k=0; k<50; k++) {
+            if(isValid(firstPoint)) {
+                foundStart = true;
+                break;
+            }
+            firstPoint = new THREE.Vector3(
+                (Math.random() - 0.5) * this.fullMapSize, 0,
+                (Math.random() - 0.5) * this.fullMapSize
+            );
+        }
+
+        if (!foundStart) return; // Too crowded to start
+
+        // Add first point
+        const gIdx = getGridIdx(firstPoint);
+        grid[gIdx.idx] = firstPoint;
+        processList.push(firstPoint);
+        points.push(firstPoint);
+
+        // Main Loop
+        while (processList.length > 0 && points.length < maxCount) {
+            if (this.getTotalEntities() > this.maxEntities) break;
+
+            // Pick random point from process list
+            const idx = Math.floor(Math.random() * processList.length);
+            const point = processList[idx];
+            let found = false;
+
+            // Try to generate up to 30 points around this point
+            for (let k = 0; k < 30; k++) {
+                const angle = Math.random() * Math.PI * 2;
+                // Distance between r and 2r
+                const dist = minDistance + Math.random() * minDistance;
+                
+                const newPoint = new THREE.Vector3(
+                    point.x + Math.cos(angle) * dist,
+                    0,
+                    point.z + Math.sin(angle) * dist
+                );
+
+                if (isValid(newPoint)) {
+                    const nGIdx = getGridIdx(newPoint);
+                    grid[nGIdx.idx] = newPoint;
+                    processList.push(newPoint);
+                    points.push(newPoint);
+                    
+                    // Actually place the game entity
+                    this.registerEntity(newPoint); // Add to main collision grid
+                    createResource(type, newPoint);
+                    
+                    found = true;
+                    // We only need one successful addition per loop iteration usually
+                    // but standard algorithm allows multiple. Breaking here is safer for performance.
+                    break; 
+                }
+            }
+
+            if (!found) {
+                // If no points found around this one, remove it from processing list
+                processList.splice(idx, 1);
+            }
+        }
+    }
+
+    // --- UTILS ---
+
+    /**
+     * Tries to register an entity in the spatial grid.
+     * Returns true if successful, false if blocked.
+     */
+    tryPlaceEntity(pos, type) {
+        if (!this.isValidPosition(pos, 0)) return false;
+
+        const cellSize = this.config.minDistanceBetweenEntities;
+        // Map pos to grid coords
+        const gx = Math.floor((pos.x + this.config.mapSize) / cellSize);
+        const gz = Math.floor((pos.z + this.config.mapSize) / cellSize);
+
+        // Check 3x3 neighbors in spatial grid
+        for (let x = -1; x <= 1; x++) {
+            for (let z = -1; z <= 1; z++) {
+                const key = `${gx + x},${gz + z}`;
+                if (this.spatialGrid.has(key)) return false;
+            }
+        }
+
+        // If clear, claim center cell
+        this.spatialGrid.set(`${gx},${gz}`, true);
+        return true;
+    }
+
+    registerEntity(pos) {
+        const cellSize = this.config.minDistanceBetweenEntities;
+        const gx = Math.floor((pos.x + this.config.mapSize) / cellSize);
+        const gz = Math.floor((pos.z + this.config.mapSize) / cellSize);
+        this.spatialGrid.set(`${gx},${gz}`, true);
+    }
+
+    isValidPosition(pos, margin = 0) {
+        const limit = this.config.mapSize - margin;
+        return Math.abs(pos.x) <= limit && Math.abs(pos.z) <= limit;
+    }
+
+    isValidGlobalPosition(pos, minDistanceFromBase) {
+        // 1. Bounds
+        if (!this.isValidPosition(pos, 5)) return false;
+
+        // 2. Exclusion Zones
+        for (let zone of this.exclusionZones) {
+            if (pos.distanceTo(zone.pos) < (zone.radius + minDistanceFromBase)) return false;
+        }
+
+        // 3. Existing Entities (Spatial Grid)
+        return this.tryPlaceEntity(pos, 'dummy'); // 'dummy' just checks space
+    }
+
+    getTotalEntities() {
+        let count = 0;
+        this.spatialGrid.forEach(() => count++);
+        return count;
+    }
+}
+```
+
+### Integration with `initGame`
+
+To ensure this works correctly with your `initGame`, make sure you instantiate the class with the appropriate configuration. Here is how your `initGame` function should look to handle the map size and boundaries correctly:
+
+```javascript
+function initGame(mapSize = 200) {
+    // 1. Clear Scene (Ensure you have a mechanism to clear old meshes if restarting)
+    // ... (Your existing scene clear logic) ...
+
+    // 2. Setup Ground and Grid based on mapSize
+    const fullMapSize = mapSize * 2;
+    
+    // Ground
+    const groundGeo = new THREE.PlaneGeometry(fullMapSize, fullMapSize);
+    const groundMat = new THREE.MeshStandardMaterial({ color: CONFIG.COLORS.GROUND });
+    const myground = new THREE.Mesh(groundGeo, groundMat);
+    myground.rotation.x = -Math.PI / 2;
+    myground.receiveShadow = true;
+    myground.name = "Ground";
+    scene.add(myground);
+    
+    // Grid Helper
+    const divisions = fullMapSize / 10; // 10 units per grid square
+    const mygrid = new THREE.GridHelper(fullMapSize, divisions, 0x000000, 0x000000);
+    mygrid.material.opacity = 0.1;
+    mygrid.material.transparent = true;
+    scene.add(mygrid);
+
+    ground = myground;
+    grid = mygrid;
+
+    // 3. Generate Map
+    // You can change mapType to 'FOREST', 'GOLD_RUSH', or 'STANDARD'
+    const mapGen = new MapGeneratorV2({
+        mapSize: mapSize,
+        numPlayers: 2,
+        playerName: ['player', 'enemy'],
+        resourceDensity: 1.0,
+        mapType: 'STANDARD' 
+    });
+    mapGen.generate();
+
+    // 4. Visual Boundaries (Optional but helpful)
+    showMapBoundaries(fullMapSize);
+
+    // 5. Start Loop
+    state.isPlaying = true;
+    animate();
+    setInterval(aiTick, CONFIG.AI_THINK_INTERVAL);
+}
+```
+
+### Key Fixes & Features Explained
+1.  **Fairness**: The `createStartingResources` method uses a deterministic ring logic (min/max distance) relative to the Town Center. Every player gets the exact same count and variety of resources in their starting sector.
+2.  **Collision Detection (`tryPlaceEntity`)**: I implemented a spatial hashing grid. When placing a resource, we convert its world coordinate to a grid cell and check the surrounding 3x3 cells. This guarantees no resources overlap.
+3.  **Poisson Disk (`poissonDiskSampling`)**: This is the "juicy" part. It creates forests that look organic (clumpy but evenly spread) rather than pure white noise. It also respects the "exclusion zones" so trees won't spawn inside your base.
+4.  **Map Types**:
+    *   `STANDARD`: Balanced trees and gold.
+    *   `FOREST`: Increases tree density significantly, creating choke points.
+    *   `GOLD_RUSH`: Increases gold mine count and reduces trees.
+5.  **Coordinate Safety**: The `isValidPosition` function strictly enforces the `[-mapSize, mapSize]` limit derived from your `initGame` parameters.
+6.  **Performance**: Added `maxEntities` (capped at 2000) to prevent crashing on low-end devices if the map size is cranked up too high.
+
+
+--------
+
+
+
+Okay it works! But the map is...
+
+- Seems the starting resources assigned to each player, the "radius" is way too small and it becomes very cramped.
+- Only One forest is generated, on a corner of the map.
+- only one gold mine (strategic) placed between the two player.
+
+(default settings as above)
+
+Can you solve it without major code change by only "tuning the parameter"? (If you reasoned code change is really necessary then go ahead)
+
+
+
+--------
+
+ 
+
+        Analyze the User's Feedback: 
+             Issue 1: Cramped starting resources. The "radius" for clusters around the Town Center (TC) is too small.
+             Issue 2: Only one forest generated, cornered. The Poisson Disk algorithm (or its parameters) is failing to cover the map effectively, or the exclusion zones are too aggressive, or the density/count is just too low.
+             Issue 3: Only one strategic gold mine. The placeBetweenPlayers logic seems insufficient or the loop isn't iterating enough.
+              
+
+        Diagnose the Cause (Reviewing the previous code): 
+             
+
+            Cramped Start (Issue 1): 
+                 Look at createStartingResources.
+                 Trees: minDistance: 10, maxDistance: 20. On a 200x200 map (radius 200), this is quite tight. It puts trees 10-20 units away. The TC itself takes up space. The cluster radius is 8.
+                 Gold: minDistance: 12, maxDistance: 18.
+                 Berries: minDistance: 8, maxDistance: 12.
+                 Fix: Increase minDistance and maxDistance significantly. The "Woodline" in Age of Empires is usually a decent distance away, not practically touching the foundation.
+                 
+             
+
+            One Forest/Cornered (Issue 2): 
+                 Look at poissonDiskSampling.
+                 Start Point: The code tries to find a random start point. If it hits an exclusion zone, it retries 50 times. If it fails, it returns.
+                 Growth: It grows from the start point.
+                 Problem: The algorithm is sequential. It starts somewhere valid and expands. If the map is large relative to minDistance, the algorithm might time out (maxCount reached) before traversing the whole map or the initial seed just happened to land in a corner and didn't spread fast enough before hitting maxCount.
+                 Crucially: The exclusionZones are circles around the player bases. The algorithm tries to place a point, checks if it's inside a circle. If it is, it rejects.
+                 Issue: If the map is empty (radius 200) and the players are at distance 70 from center (0.35 * 200), the exclusion zone (radius 25) covers a good chunk of the play area, but there should be plenty of space elsewhere.
+                 Real Culprit: maxCount. In placeMapResources: maxCount: Math.floor(300 * density * forestDensity). With density 1.0 and forest density 0.8, that's roughly 240 trees.
+                 Distribution: Poisson disk creates a pattern where points are minDistance apart. 240 trees isn't enough to cover a 400x400 area densely. It will look like a single grove.
+                 Fix: Drastically increase maxCount. Also, minDistance in poisson determines spacing. If we want a forest, we need smaller spacing (e.g., 4 or 5) and way more trees (e.g., 800+).
+                 
+             
+
+            One Strategic Gold (Issue 3): 
+                 Look at placeBetweenPlayers.
+                 It loops i and j for players.
+                 For 2 players: i=0, j=1.
+                 It places one gold mine.
+                 User Expectation: In AoE, there are usually multiple gold/stone spots scattered around, not just one single mine strictly in the middle.
+                 Fix: The current logic puts exactly one mine per pair of players. To make it "strategic but not lonely", we should probably place multiple mines along the line between players, or rely more on the "Global" scattered resources to appear in that central area.
+                 Code Logic: placeScatteredResources handles the "Global" gold. Let's check its parameters.
+                 Global Gold count: goldCount = Math.floor(4 * density). That's only 4 mines for the whole map.
+                 Fix: Increase Global Gold count significantly (e.g., 8-12). Also, tweak placeBetweenPlayers to place 2-3 mines along the vector instead of just one.
+                 
+              
+
+        Formulating the Solution (Tuning Parameters): 
+             
+
+            Goal: Keep code structure, change constants. 
+             
+
+            Adjusting createStartingResources: 
+                 Trees: Change range to 15 - 25. Increase count to 8-10.
+                 Gold: Change range to 20 - 30.
+                 Berries: Change range to 10 - 18.
+                 
+             
+
+            Adjusting placeMapResources: 
+                 Forest:
+                     Increase maxCount. A 400x400 area has 160,000 sq units.
+                     If minDistance is 5, area per tree ~ 25 sq units.
+                     Theoretical max = 6400 trees. We don't need that many, but 300 is too sparse. Let's go for 600 or 800.
+                     Reduce minDistance to 4 for a dense forest look.
+                     
+                 Global Gold:
+                     Increase from 4 to 10.
+                     
+                 Strategic Gold (placeBetweenPlayers):
+                     This function currently places 1. Let's make it place 2 or 3 mines distributed between the bases.
+                     
+                 
+              
+
+        Refining the Code (Implementation): 
+
+        I will provide a modified version of MapGeneratorV2. Since the user asked to "tune parameters" but allowed code changes if necessary, I will modify the configuration constants within the class logic (or better yet, make them easily accessible at the top of the methods) to fix the logic flow of placeBetweenPlayers which is structurally too simple (only 1 mine per pair). 
+
+        Wait, the user specifically asked for "only tuning parameters" if possible.
+        The placeBetweenPlayers loop only runs once for 2 players. If I want more than one mine, I have to change the code to loop n times or change the structure. That is a code change, not just a parameter change. Given the feedback "Only One... gold mine", I will make a small code change to placeBetweenPlayers to accept a count, and tune the rest.  
+
+        Drafting the Changes: 
+             
+
+            createStartingResources: 
+                 Trees: minDistance: 12, maxDistance: 25 (Push woodline out).
+                 Berries: minDistance: 10, maxDistance: 18.
+                 Gold: minDistance: 15, maxDistance: 25.
+                 
+             
+
+            placeMapResources: 
+                 Forest:
+                     minDistance: 4 (Denser).
+                     maxCount: 800 (Much larger map coverage).
+                     
+                 Global Gold:
+                     goldCount: 12 (More mines scattered around).
+                     
+                 Strategic Gold:
+                     Logic Change: Instead of just one at midpoint, place a few.
+                     
+                 
+              
+
+        Addressing "One Forest in Corner":
+        This is the Poisson Disk issue. The algorithm in the previous response was strictly sequential while (processList.length > 0). If maxCount is hit, it stops. If the start point is in a corner, and maxCount is low (300), it fills the corner and stops.
+        Fix: Increase maxCount drastically so it fills the map. Also, strictly increasing maxCount ensures it spreads out.  
+
+        Final Code Construction: 
+
+        I will provide the updated class methods. I will keep the class structure but override the specific methods with the tuned values and the small logic fix for the strategic gold. 
+
+        Self-Correction on placeBetweenPlayers:
+        The user wants "strategic resources between players".
+        Currently: 
+        javascript
+         
+          
+
+placeBetweenPlayers(type) {
+   // ... loops pairs ...
+   // ... places 1 at midpoint ...
+}
+ 
+ 
+ 
+
+I will change this to loop k from 0 to count-1 and place mines along the line between players, slightly perpendicular jittered. 
+
+Let's update the MapGeneratorV2 class. 
+
+Parameters to Tune: 
+
+     this.config.minDistanceBetweenEntities: Keep 4.
+     this.maxEntities: Increase to 3000 (to allow more trees).
+     createStartingResources:
+         Tree Radius: 10-20 -> 12-28.
+         Gold Radius: 12-18 -> 20-35.
+         Berry Radius: 8-12 -> 10-20.
+         
+     placeMapResources:
+         Forest maxCount: 300 -> 1000.
+         Forest minDistance: 5 -> 4.
+         Global Gold: 4 -> 12.
+         Strategic Gold: Add parameter count (set to 3).
+         
+     
+
+Let's write the code. I will provide the full class again to ensure copy-paste works, or just the relevant parts. The user seems to appreciate the full implementation to avoid integration errors. I will provide the updated MapGeneratorV2 class. 
+
+Note on "OilSeep": The previous code filtered this out, I will maintain that. 
+
+Specific fix for placeBetweenPlayers:
+I'll introduce a numMines loop inside. 
+
+Check: Is "One Forest" fixed by maxCount=1000? Yes. The algorithm will keep expanding until it hits 1000 trees or covers the map. With 4 units spacing, 1000 trees will cover a large chunk, but likely not the whole map (which is huge). To make it feel like "One forest", it usually means it didn't spread. High count fixes this. 
+
+Check: "Cramped start". Fixed by increasing radii. 
+
+Check: "One gold". Fixed by increasing global count and strategic count. 
+
+Let's execute. 
+
+
+--------
+
+
+
+The issue is twofold:
+1.  **Parameter Tuning**: The distances (radii) for starting resources were too tight, and the total counts for forests/global gold were too low for a map of size 200.
+2.  **Logic Tweak**: The `placeBetweenPlayers` function was hardcoded to place exactly 1 mine.
+
+Here is the updated `MapGeneratorV2` class. I have tuned the parameters to spread things out and increased the entity limits significantly to allow for a lush map.
+
+```javascript
+class MapGeneratorV2 {
+    constructor(config) {
+        this.config = {
+            mapSize: 200,             // Radius
+            numPlayers: 2,
+            playerName: ['player', 'enemy'],
+            resourceDensity: 1.0,     // Multiplier
+            minDistanceBetweenEntities: 4, // Base collision size
+            mapType: 'STANDARD',
+            ...config
+        };
+
+        this.fullMapSize = this.config.mapSize * 2;
+        this.gridSize = this.config.minDistanceBetweenEntities;
+        this.spatialGrid = new Map();
+        
+        // Increased max entities to support lush forests
+        this.maxEntities = 3500; 
+        this.playerBasePositions = [];
+        this.exclusionZones = [];
+    }
+
+    getPlayerName(idx) {
+        return this.config.playerName[idx] || `player${idx+1}`;
+    }
+
+    generate() {
+        this.clearPreviousMap();
+        this.placePlayerBases();
+
+        // Exclusion zones prevent trees spawning ON bases
+        // Radius increased to 30 to ensure a clean building perimeter
+        this.playerBasePositions.forEach(pos => {
+            this.exclusionZones.push({ pos: pos, radius: 30 });
+        });
+
+        this.placeMapResources();
+    }
+
+    clearPreviousMap() {
+        this.spatialGrid.clear();
+        this.playerBasePositions = [];
+        this.exclusionZones = [];
+    }
+
+    // --- PLAYER LOGIC ---
+
+    placePlayerBases() {
+        const radius = this.config.mapSize * 0.35;
+        const angleStep = (2 * Math.PI) / this.config.numPlayers;
+
+        for (let i = 0; i < this.config.numPlayers; i++) {
+            const angle = angleStep * i;
+            const pos = new THREE.Vector3(
+                Math.cos(angle) * radius,
+                0,
+                Math.sin(angle) * radius
+            );
+
+            this.playerBasePositions.push(pos);
+            createBuilding('TownCenter', this.getPlayerName(i), pos);
+            this.registerEntity(pos);
+            this.createStartingUnits(pos, i);
+            this.createStartingResources(pos);
+        }
+    }
+
+    createStartingUnits(basePos, playerIdx) {
+        const offset = 8;
+        const unitPositions = [
+            new THREE.Vector3(offset, 0, offset),
+            new THREE.Vector3(-offset, 0, offset),
+            new THREE.Vector3(0, 0, -offset)
+        ];
+
+        unitPositions.forEach((p, i) => {
+            const type = i === 2 ? 'Soldier' : 'Villager';
+            createUnit(type, this.getPlayerName(playerIdx), basePos.clone().add(p));
+        });
+    }
+
+    createStartingResources(basePos) {
+        // --- TUNED PARAMETERS ---
+        
+        // 1. Berries (Food) - Pushed out slightly
+        this.placeResourceCluster('BerryBush', basePos, {
+            count: 3, 
+            minDistance: 12, // Increased from 8
+            maxDistance: 20, // Increased from 12
+            clusterRadius: 4  // Slightly looser cluster
+        });
+
+        // 2. Gold (Economy) - Pushed further out to give room
+        this.placeResourceCluster('GoldMine', basePos, {
+            count: 1, 
+            minDistance: 18, // Increased from 12
+            maxDistance: 28, // Increased from 18
+            clusterRadius: 0
+        });
+
+        // 3. Trees (Woodline) - Much wider ring
+        const treeCount = (this.config.mapType === 'FOREST') ? 12 : 8;
+        this.placeResourceCluster('Tree', basePos, {
+            count: treeCount, 
+            minDistance: 14, // Increased from 10
+            maxDistance: 28, // Increased from 20
+            clusterRadius: 10 // Wider spread to create a "line" rather than a clump
+        });
+    }
+
+    // --- MAP RESOURCE LOGIC ---
+
+    placeMapResources() {
+        const density = this.config.resourceDensity;
+        const center = new THREE.Vector3(0,0,0);
+
+        // --- TUNED PARAMETERS ---
+
+        // A. Global Forest
+        let forestDensity = 1.0; 
+        if (this.config.mapType === 'FOREST') forestDensity = 1.8;
+        if (this.config.mapType === 'GOLD_RUSH') forestDensity = 0.4;
+
+        this.poissonDiskSampling('Tree', {
+            minDistance: 4.5, // Slightly tighter packing for density
+            maxCount: Math.floor(1000 * density * forestDensity), // Increased from 300
+            exclusionZones: this.exclusionZones
+        });
+
+        // B. Global Gold Mines (Scattered far away)
+        // Increased from 4 to 12 to ensure multiple sources
+        let globalGoldCount = Math.floor(12 * density);
+        if (this.config.mapType === 'GOLD_RUSH') globalGoldCount = Math.floor(20 * density);
+        
+        this.placeScatteredResources('GoldMine', {
+            count: globalGoldCount,
+            minDistance: 40, // Ensure they are far from bases
+            clusterRadius: 0
+        });
+
+        // C. Global Berry Bushes / Stone
+        this.placeScatteredResources('BerryBush', {
+            count: Math.floor(10 * density),
+            minDistance: 30,
+            clusterRadius: 5
+        });
+
+        // D. Strategic Gold between players
+        // We now place 2-3 mines between each player pair instead of just 1
+        this.placeBetweenPlayers('GoldMine', { count: 3 }); 
+    }
+
+    // --- ALGORITHMS ---
+
+    placeResourceCluster(type, center, options) {
+        const { count, minDistance, maxDistance, clusterRadius } = options;
+        let placed = 0;
+
+        for (let i = 0; i < count * 5; i++) { // Increased retry attempts
+            if (placed >= count) break;
+            if (this.getTotalEntities() > this.maxEntities) break;
+
+            const angle = Math.random() * Math.PI * 2;
+            const dist = minDistance + Math.random() * (maxDistance - minDistance);
+            
+            let pos = new THREE.Vector3(
+                center.x + Math.cos(angle) * dist,
+                0,
+                center.z + Math.sin(angle) * dist
+            );
+
+            if (clusterRadius > 0) {
+                pos.x += (Math.random() - 0.5) * clusterRadius * 2;
+                pos.z += (Math.random() - 0.5) * clusterRadius * 2;
+            }
+
+            if (this.tryPlaceEntity(pos, type)) {
+                createResource(type, pos);
+                placed++;
+            }
+        }
+    }
+
+    placeScatteredResources(type, options) {
+        const { count, minDistance, clusterRadius } = options;
+        let placed = 0;
+        let attempts = 0;
+        const maxAttempts = count * 50; 
+
+        while (placed < count && attempts < maxAttempts) {
+            if (this.getTotalEntities() > this.maxEntities) break;
+            attempts++;
+
+            const pos = new THREE.Vector3(
+                (Math.random() - 0.5) * this.fullMapSize,
+                0,
+                (Math.random() - 0.5) * this.fullMapSize
+            );
+
+            if (this.isValidGlobalPosition(pos, minDistance)) {
+                if (clusterRadius > 0) {
+                    const clusterSize = 1 + Math.floor(Math.random() * 2);
+                    let localPlaced = 0;
+                    for(let k=0; k<clusterSize; k++) {
+                         const offset = new THREE.Vector3(
+                            (Math.random()-0.5)*clusterRadius*2, 0, 
+                            (Math.random()-0.5)*clusterRadius*2
+                        );
+                        if(this.tryPlaceEntity(pos.clone().add(offset), type)) {
+                            createResource(type, pos.clone().add(offset));
+                            localPlaced++;
+                        }
+                    }
+                    if(localPlaced > 0) placed++;
+                } else {
+                    if (this.tryPlaceEntity(pos, type)) {
+                        createResource(type, pos);
+                        placed++;
+                    }
+                }
+            }
+        }
+    }
+
+    placeBetweenPlayers(type, options = { count: 1 }) {
+        for (let i = 0; i < this.playerBasePositions.length; i++) {
+            for (let j = i + 1; j < this.playerBasePositions.length; j++) {
+                const p1 = this.playerBasePositions[i];
+                const p2 = this.playerBasePositions[j];
+
+                // Calculate vector between players
+                const dir = new THREE.Vector3().subVectors(p2, p1).normalize();
+                const perp = new THREE.Vector3(-dir.z, 0, dir.x);
+
+                for (let k = 0; k < options.count; k++) {
+                    // Distribute the mines along the line between bases, not just at midpoint
+                    // Lerp between 0.2 and 0.8 of the distance
+                    const t = 0.2 + (Math.random() * 0.6); 
+                    const posOnLine = new THREE.Vector3().lerpVectors(p1, p2, t);
+                    
+                    // Add some perpendicular offset to avoid them forming a straight line
+                    const offset = perp.multiplyScalar((Math.random() - 0.5) * 20);
+                    const pos = posOnLine.add(offset);
+
+                    if (this.tryPlaceEntity(pos, type)) {
+                        createResource(type, pos);
+                    }
+                }
+            }
+        }
+    }
+
+    poissonDiskSampling(type, options) {
+        const { minDistance, maxCount, exclusionZones } = options;
+        const cellSize = minDistance / Math.sqrt(2);
+        const gridWidth = Math.ceil(this.fullMapSize / cellSize);
+        const gridHeight = Math.ceil(this.fullMapSize / cellSize);
+        const grid = new Array(gridWidth * gridHeight).fill(null);
+        const processList = [];
+        
+        const getGridIdx = (vec) => {
+            const gx = Math.floor((vec.x + this.config.mapSize) / cellSize);
+            const gy = Math.floor((vec.z + this.config.mapSize) / cellSize);
+            return { x: gx, y: gy, idx: gx + gy * gridWidth };
+        };
+
+        const isValid = (p) => {
+            if (!this.isValidPosition(p, minDistance)) return false;
+            for (let zone of exclusionZones) {
+                if (p.distanceTo(zone.pos) < zone.radius) return false;
+            }
+            const g = getGridIdx(p);
+            for (let i = -2; i <= 2; i++) {
+                for (let j = -2; j <= 2; j++) {
+                    const nx = g.x + i;
+                    const ny = g.y + j;
+                    if (nx >= 0 && nx < gridWidth && ny >= 0 && ny < gridHeight) {
+                        const neighbor = grid[nx + ny * gridWidth];
+                        if (neighbor && p.distanceToSquared(neighbor) < minDistance * minDistance) return false;
+                    }
+                }
+            }
+            return true;
+        };
+
+        // Seed multiple points to ensure forests don't just grow from one corner
+        // We try to seed 5 random locations
+        let seedsFound = 0;
+        const seedCount = 5;
+        
+        for(let s=0; s<seedCount; s++) {
+            let attempts = 0;
+            while(attempts < 100) {
+                const p = new THREE.Vector3(
+                    (Math.random() - 0.5) * this.fullMapSize, 0,
+                    (Math.random() - 0.5) * this.fullMapSize
+                );
+                if (isValid(p)) {
+                    const gIdx = getGridIdx(p);
+                    grid[gIdx.idx] = p;
+                    processList.push(p);
+                    this.registerEntity(p);
+                    createResource(type, p);
+                    seedsFound++;
+                    break;
+                }
+                attempts++;
+            }
+        }
+
+        if (seedsFound === 0) return;
+
+        let totalPlaced = seedsFound;
+
+        while (processList.length > 0 && totalPlaced < maxCount) {
+            if (this.getTotalEntities() > this.maxEntities) break;
+            const idx = Math.floor(Math.random() * processList.length);
+            const point = processList[idx];
+            let found = false;
+
+            for (let k = 0; k < 20; k++) {
+                const angle = Math.random() * Math.PI * 2;
+                const dist = minDistance + Math.random() * minDistance;
+                const newPoint = new THREE.Vector3(
+                    point.x + Math.cos(angle) * dist,
+                    0,
+                    point.z + Math.sin(angle) * dist
+                );
+
+                if (isValid(newPoint)) {
+                    const nGIdx = getGridIdx(newPoint);
+                    grid[nGIdx.idx] = newPoint;
+                    processList.push(newPoint);
+                    this.registerEntity(newPoint);
+                    createResource(type, newPoint);
+                    totalPlaced++;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) processList.splice(idx, 1);
+        }
+    }
+
+    tryPlaceEntity(pos, type) {
+        if (!this.isValidPosition(pos, 0)) return false;
+        const cellSize = this.config.minDistanceBetweenEntities;
+        const gx = Math.floor((pos.x + this.config.mapSize) / cellSize);
+        const gz = Math.floor((pos.z + this.config.mapSize) / cellSize);
+        for (let x = -1; x <= 1; x++) {
+            for (let z = -1; z <= 1; z++) {
+                const key = `${gx + x},${gz + z}`;
+                if (this.spatialGrid.has(key)) return false;
+            }
+        }
+        this.spatialGrid.set(`${gx},${gz}`, true);
+        return true;
+    }
+
+    registerEntity(pos) {
+        const cellSize = this.config.minDistanceBetweenEntities;
+        const gx = Math.floor((pos.x + this.config.mapSize) / cellSize);
+        const gz = Math.floor((pos.z + this.config.mapSize) / cellSize);
+        this.spatialGrid.set(`${gx},${gz}`, true);
+    }
+
+    isValidPosition(pos, margin = 0) {
+        const limit = this.config.mapSize - margin;
+        return Math.abs(pos.x) <= limit && Math.abs(pos.z) <= limit;
+    }
+
+    isValidGlobalPosition(pos, minDistanceFromBase) {
+        if (!this.isValidPosition(pos, 5)) return false;
+        for (let zone of this.exclusionZones) {
+            if (pos.distanceTo(zone.pos) < (zone.radius + minDistanceFromBase)) return false;
+        }
+        return this.tryPlaceEntity(pos, 'dummy');
+    }
+
+    getTotalEntities() {
+        return this.spatialGrid.size;
+    }
+}
+```
+
+
+--------
+
+
+Great! It works well after some further manual tuning of parameter (but you are in the right direction). Now, I have a stretch goal. Currently I have a simple AI. One major aesthetic issue is the AI's choice of build location for building results in repeated location. I want it to be more methodical, like planning a city layout. I think it is another procedural generation algorithm. Can you help? (Provide a class that remember current existing building location, and have a method "planLocation", arg is building type (currently only House and Barracks), and return a relative position vector (base is the town center). Future extension includes: market, tower, farm. Maybe have config param like city size limit (square or circular radius that it will not build beyond)
+
+Thanks!
+
+
+
+--------
+
+
+
+ 
+
+        Analyze the Request: 
+             Goal: Improve AI building placement aesthetics (city layout planning) instead of random/repetitive placement.
+             Context: Existing Age of Empires clone in Three.js.
+             Requirements:
+                 A class to manage existing building locations.
+                 A method planLocation(buildingType) returning a THREE.Vector3 (relative to Town Center).
+                 Current building types: House, Barracks.
+                 Future types: Market, Tower, Farm.
+                 Configuration: City size limit (radius/square).
+                 Methodical layout (e.g., grids, sectors, logical progression).
+                 
+              
+
+        Determine the Approach: 
+             Problem: Random placement (Math.random() * distance) looks messy and clutters the TC. A methodical system needs logic.
+             Strategy: Sector-based Grid Layout.
+                 Divide the area around the Town Center into sectors (e.g., "Residential", "Military", "Economic").
+                 Within each sector, use a "Snaking" or "Linear" scan to find the first available spot. This mimics a player dragging a placement cursor in lines.
+                 
+             Data Structure:
+                 Need a grid system to track occupied spots.
+                 Since it's relative to the TC, the grid origin (0,0) is the TC.
+                 Each building needs a "footprint" (size in grid cells).
+                 
+              
+
+        Designing CityPlanner Class: 
+             
+
+            Configuration: 
+                 cellSize: The unit of measurement for the grid (e.g., 5 units).
+                 cityRadius: Max distance from TC to build.
+                 
+             
+
+            State: 
+                 occupiedCells: A Map or Set to track used grid coordinates (x, y).
+                 currentGridCursor: To remember where we left off scanning? No, better to scan from start of sector every time to find gaps, or have a cursor per sector. Decision: Let's use a cursor per building type/sector to simulate expansion.
+                 
+             
+
+            Sectors & Building Types: 
+                 House: Residential. Usually close, filling space.
+                 Farm: Economic. Often in lines.
+                 Barracks/Tower: Military. Maybe further out or in a specific direction.
+                 Layout Idea:
+                     Quadrant I (0 to 90 deg): Houses.
+                     Quadrant II (90 to 180): Farms/Mines.
+                     Quadrant III (180 to 270): Military.
+                     Quadrant IV (270 to 360): Markets/Storage.
+                     
+                 
+             
+
+            Algorithm (planLocation): 
+                Map buildingType to a specific Sector definition (start angle, end angle). 
+                Determine building footprint size (e.g., House = 1x1, Barracks = 2x2). 
+                Iterate through grid cells within that sector, spiraling out or scanning linearly. 
+                Check collision with occupiedCells. 
+                If free, mark cells as occupied and return world position. 
+                If no space found in sector, fallback to expanding the search radius or returning null (City full). 
+              
+
+        Refining the Grid Logic: 
+             
+
+            Instead of complex polar coordinates for sectors, let's keep it simpler first: Zoning by Direction. 
+             
+
+            Define "Walkers" (cursors) for each building type. 
+             
+
+            The cursor starts at x, z offset from TC. 
+             
+
+            If the spot is blocked, the cursor moves forward (snake pattern). 
+             
+
+            This is easier to implement and visualize than sector math, and guarantees a "packed" look. 
+             
+
+            Revised Strategy: The "Snake" Walker. 
+                 Each building type has a startPosition (e.g., House = +10x, +10z).
+                 It has a step (size of building).
+                 It has a direction (which way to grow).
+                 When planLocation('House') is called:
+                     Check current cursor position.
+                     Is it blocked? -> Move cursor to next slot in the "snake" line.
+                     Is it outside radius? -> Start new row parallel to previous.
+                     Is it valid? -> Return pos, mark occupied.
+                     
+                 
+              
+
+        Drafting the Implementation Details: 
+             
+
+            Building Sizes: 
+                 House: 10x10 (approx).
+                 Barracks: 20x20.
+                 Farm: 15x15.
+                 Note: In Age of Empires, farms are usually 1x1 grid, buildings are 3x3, etc. I'll assume a generic "grid unit" size of 10 for simplicity in this code example.
+                 
+             
+
+            Class Structure: 
+            javascript
+             
+              
+
+        class CityPlanner {
+            constructor(config) { ... }
+            planLocation(buildingType) { ... }
+            // Helper: checkCollision(gridX, gridZ)
+            // Helper: markOccupied(gridX, gridZ, width, height)
+            // Helper: getNextSpot(type)
+        }
+         
+         
+         
+         
+
+        Handling "Future Extensions": 
+             Make the "Walkers" configurable via the constructor or a zones object.
+             
+          
+
+    Writing the Code (Iterative refinement): 
+         
+
+        The "Zones": 
+             Let's define zones by Angle.
+             Houses: 0 to 90 deg (Top Right).
+             Barracks: 180 to 225 deg (Bottom Left).
+             Farms: 270 to 315 deg (Top Left).
+             
+         
+
+        The Algorithm: 
+             Instead of a walker that remembers exactly where it was, let's just search from the "center" of the zone outwards in rings. This is robust against the map filling up in non-linear ways (e.g., if the AI deletes a building, we fill the gap? No, usually AI doesn't delete).
+             Decision: A Ring Expansion Search within a defined sector.
+             
+            Calculate Sector Center Vector. 
+            Start at r = min_distance. 
+            Loop r upwards. 
+            At each r, iterate angle from startAngle to endAngle. 
+            Check r, theta collision. 
+            Convert polar r, theta to Cartesian x, z. 
+            Check grid occupancy. 
+            Return first valid spot. 
+         
+
+        Refinement on Ring Expansion: It feels a bit "mathy" for game grids. 
+         
+
+        Alternative: Linear Scan within Quadrant. 
+             Houses: Iterate x from 10 to Max, z from 10 to Max. (Scanline).
+             Barracks: Iterate x from -10 to -Max, z from -10 to -Max.
+             This is very predictable and looks very orderly.
+             Let's go with Ordered Quadrant Scanning.
+             
+          
+
+    Finalizing the Code Logic: 
+         
+
+        gridSize: 10 units (standard tile). 
+         
+
+        cityRadius: 100 units. 
+         
+
+        occupied: Map<string, true> ("x,z"). 
+         
+
+        zones: 
+             House: x: [10, 100], z: [10, 100]. Scan order: x++, if x > limit, z++, x=reset. (Actually, snake is better to minimize walking distance).
+             Let's stick to a simple loop: z from start to end, x from start to end.
+             
+         
+
+        Building Definitions: 
+             House: width: 2, depth: 2 (20x20 units).
+             Barracks: width: 3, depth: 3 (30x30 units).
+             
+         
+
+        The Method planLocation(type): 
+             Get zone for type.
+             Loop through grid coords in zone.
+             Check isFree(x, z).
+             If free -> reserve(x, z) -> Return World Pos.
+             If loop finishes -> Return null (City Full).
+             
+          
+
+    Addressing "Existing Buildings": 
+         The class needs to be told about existing buildings.
+         Method registerBuilding(position, type) to pre-populate the grid so the planner doesn't try to build over the Town Center.
+          
+
+    Adding "Aesthetic" touches: 
+         Add a little random jitter? No, the user wants "methodical" and "planning". Perfect grids look cool in strategy games.
+         Add spacing padding between buildings.
+          
+
+    Constructing the Solution: 
+         Define CityPlanner.
+         config: cellSize, maxRadius, zones.
+         registerExisting(pos, type).
+         planLocation(type).
+         
+
+    (Self-Correction): What if the map is full? Return null.
+    (Self-Correction): What about the Town Center itself? Make sure to register it at (0,0).  
+
+    Code Structure for the User: 
+         Provide the class.
+         Show how to integrate it into the AI loop.
+         Explain the Zoning logic.
+          
+
+(Self-Correction during coding the loop):
+Scanning linearly for (z=start; z<end; z++) { for (x=start; x<end; x++) { ... } } is simple but if I build a Barracks (3x3) at (0,0), and a House at (0,3), it works.
+I need to ensure the scan "skips" occupied blocks efficiently.
+Actually, just keeping a cursor for each zone is most efficient.
+Cursor approach:
+HouseCursor = { x: 5, z: 5 }.
+Next House: Check (5,5). Free? Take it. Update x += 3.
+Next House: Check (8,5). Free? Take it.
+Next House: Check (11,5). Out of bounds? x = 5, z += 3.
+This is perfect. It creates rows. 
+
+Let's implement the Cursor-based Zoning. It's O(1) lookup essentially and ensures neat rows. 
+
+Zone Definitions (Quadrants): 
+
+    Residential (Houses): Quadrant 1 (+X, +Z). 
+    Military (Barracks/Towers): Quadrant 3 (-X, -Z). 
+    Economic (Farms): Quadrant 2 (-X, +Z). 
+    Commercial (Markets): Quadrant 4 (+X, -Z). 
+
+This spreads the city nicely. 
+
+Refinement: What if I run out of space in Quadrant 1?
+Solution: Allow the cursor to "bleed" into adjacent quadrants if the primary one is full, or just stop. For now, stop is safer to prevent overlapping other sectors. I'll add a fallbackRadius logic if the cursor fails. 
+
+Let's write the code. 
+
+Attributes: 
+
+     buildingSizes: Map of type -> {x, z} (in grid units).
+     zones: Map of type -> { startX, startZ, dirX, dirZ }.
+     cursors: Map of type -> { x, z }.
+     
+
+Integration:
+The AI needs to instantiate this, register the TC (and maybe initial houses if they exist), then call planLocation. 
+
+Formatting: Output as a clean class with comments. 
+
+(Final Polish):
+Ensure the coordinates returned are valid THREE.Vector3 instances.
+Add a jitter option (0.0 for strict grid, small value for natural look). I'll default to strict grid as requested ("methodical"). 
+
+Let's go. 
+
+Code Skeleton: 
+javascript
+ 
+  
+class CityPlanner {
+  constructor(townCenterPos, config = {})
+  planLocation(buildingType)
+  registerExisting(pos, buildingType)
+  // Private: checkCollision, isOutOfBounds
+}
+ 
+ 
+ 
+
+I'll add the logic to handle the "Town Center" registration automatically or require the user to do it. Requiring registration is more flexible. 
+
+Wait, planLocation returns a relative position according to the prompt ("return a relative position vector (base is the town center)").
+Okay, I will return new THREE.Vector3(x, 0, z) relative to (0,0,0) of the grid. The AI adds this to the TC world position. 
+
+One edge case: initGame creates units and such. Does it create houses?
+"Player Setup" in the first prompt had TownCenter and units. No houses. So the grid starts mostly empty except for the TC.
+However, the MapGenerator might place resources in the building zones.
+Crucial: CityPlanner needs to be aware of Resources too! If a tree is in the "House Zone", the planner must skip that grid cell.
+I should add a registerObstacle(pos, radius) method. The AI can iterate through the resources it knows about (or the scene objects) and register them, or simpler: MapGenerator and CityPlanner share a spatial grid?
+Simplest approach for the user: Just add registerObstacle. The AI scans nearby resources and calls registerObstacle. 
+
+Let's stick to Buildings for now as per the prompt, but mention registerObstacle is good practice for trees. 
+
+Let's refine the "Cursor" logic.
+If the cursor points to a location that is occupied (e.g. by a tree), it should move forward until it finds a spot. 
+
+Okay, plan is solid. 
+
+
+--------
+
+
+
+
+
+This is a great idea for improving the "AI feel." A methodical approach relies on **Zoning** and **Grid Snapping**.
+
+Here is a `CityPlanner` class. It works by dividing the area around the Town Center into logical **Quadrants** (e.g., Residential in the North-East, Military in the South-West). It then uses a **Cursor System** to fill these quadrants row-by-row, ensuring buildings line up neatly like a real city.
+
+### The `CityPlanner` Class
+
+```javascript
+/**
+ * CityPlanner
+ * Handles methodical building placement using a grid system.
+ * Assigns specific zones to specific building types to prevent clutter.
+ */
+class CityPlanner {
+    constructor(townCenterPosition, config = {}) {
+        this.origin = townCenterPosition; // THREE.Vector3 (World Position of TC)
+        
+        // Configuration
+        this.config = {
+            gridSize: 10,           // Size of one grid cell (units)
+            padding: 5,             // Space between buildings (units)
+            maxRadius: 100,         // Max distance from TC to build
+            jitter: 0.0,            // Random offset (0 = strict grid, higher = messy)
+            ...config
+        };
+
+        // The Spatial Grid
+        // Key: "gridX,gridZ", Value: width (in grid cells) of object
+        this.occupiedCells = new Map();
+
+        // Building Definitions (Size in Grid Cells)
+        // Assuming standard sizes: House=2x2, Barracks=3x3, Farm=2x2, etc.
+        this.buildingSizes = {
+            'TownCenter': { w: 4, d: 4 },
+            'House':      { w: 2, d: 2 },
+            'Barracks':   { w: 3, d: 3 },
+            'Farm':       { w: 2, d: 2 },
+            'Market':     { w: 3, d: 3 },
+            'Tower':      { w: 1, d: 1 },
+            'GoldMine':   { w: 2, d: 2 },
+            'BerryBush':  { w: 1, d: 1 },
+            'Tree':       { w: 1, d: 1 }
+        };
+
+        // Zone Definitions (Quadrants)
+        // Each building type gets a zone to scan.
+        // xDir/zDir: 1 (positive), -1 (negative). Determines which quadrant.
+        this.zones = {
+            'House':    { startX: 2,  startZ: 2,  dirX: 1, dirZ: 1 },  // North East
+            'Farm':     { startX: 2,  startZ: -2, dirX: 1, dirZ: -1 }, // South East
+            'Barracks': { startX: -2, startZ: -2, dirX: -1, dirZ: -1 },// South West
+            'Tower':    { startX: -2, startZ: 2,  dirX: -1, dirZ: 1 }, // North West
+            'Market':   { startX: 0,  startZ: 3,  dirX: 1, dirZ: 1 }   // Near houses
+        };
+
+        // Cursors for each building type to remember last placement
+        this.cursors = {};
+        
+        // Initialize Town Center in grid immediately
+        this.registerBuilding(this.origin, 'TownCenter');
+    }
+
+    /**
+     * Register an existing building or obstacle so the planner avoids it.
+     * @param {THREE.Vector3} worldPosition - The position of the object
+     * @param {String} type - The building type (e.g., 'Tree', 'GoldMine', 'House')
+     */
+    registerObstacle(worldPosition, type) {
+        const size = this.buildingSizes[type] || { w: 1, d: 1 };
+        const gridPos = this.worldToGrid(worldPosition);
+        this.markOccupied(gridPos.x, gridPos.z, size.w, size.d);
+    }
+
+    /**
+     * Main method to get a build location.
+     * @param {String} buildingType - 'House', 'Barracks', etc.
+     * @returns {THREE.Vector3} - Relative vector from Town Center. Returns NULL if no space.
+     */
+    planLocation(buildingType) {
+        // 1. Get Size
+        const size = this.buildingSizes[buildingType];
+        if (!size) return null;
+
+        // 2. Get or Initialize Cursor for this type
+        if (!this.cursors[buildingType]) {
+            const zone = this.zones[buildingType] || this.zones['House']; // Fallback to House zone
+            this.cursors[buildingType] = { 
+                x: zone.startX, 
+                z: zone.startZ, 
+                dirX: zone.dirX, 
+                dirZ: zone.dirZ 
+            };
+        }
+
+        const cursor = this.cursors[buildingType];
+        const limit = Math.floor(this.config.maxRadius / this.config.gridSize);
+        let attempts = 0;
+        const maxAttempts = 100; // Sanity check
+
+        // 3. Scan Grid
+        while (attempts < maxAttempts) {
+            attempts++;
+
+            // A. Check Bounds
+            if (Math.abs(cursor.x) > limit || Math.abs(cursor.z) > limit) {
+                // End of zone reached. Try to expand or return null.
+                // Simple strategy: Reset X and push Z out by one row
+                cursor.x = cursor.dirX * 2; // Reset to near origin
+                cursor.z += cursor.dirZ * 2;
+                
+                if (Math.abs(cursor.z) > limit) return null; // Truly full
+            }
+
+            // B. Check Collision
+            // We check the bounding box of the building
+            const isFree = this.checkAreaFree(cursor.x, cursor.z, size.w, size.d);
+
+            if (isFree) {
+                // SUCCESS!
+                // Mark occupied
+                this.markOccupied(cursor.x, cursor.z, size.w, size.d);
+
+                // Convert Grid to World (Relative)
+                const relX = cursor.x * this.config.gridSize;
+                const relZ = cursor.z * this.config.gridSize;
+
+                // Advance Cursor for next time (Linear scan)
+                // Move X by building width + 1 grid cell gap
+                cursor.x += cursor.dirX * (size.w + 1); 
+
+                return new THREE.Vector3(relX, 0, relZ);
+            } else {
+                // FAIL: Collision detected
+                // Move cursor to next potential spot
+                // We step by 1 grid cell to find gaps, or by building size if we want to skip chunks
+                cursor.x += cursor.dirX;
+            }
+        }
+
+        return null; // Could not find spot
+    }
+
+    // --- INTERNAL HELPERS ---
+
+    checkAreaFree(gx, gz, w, d) {
+        // Check top-left anchor relative to direction
+        // We iterate the footprint of the building
+        for (let i = 0; i < w; i++) {
+            for (let j = 0; j < d; j++) {
+                // Calculate check coordinates based on cursor direction
+                // If dirX is 1, we iterate 0 to w. If -1, we iterate 0 to -w
+                const checkX = gx + (i * (this.cursors['House']?.dirX || 1)); 
+                const checkZ = gz + (j * (this.cursors['House']?.dirZ || 1));
+
+                if (this.occupiedCells.has(`${checkX},${checkZ}`)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    markOccupied(gx, gz, w, d) {
+        // We need to handle the anchor logic carefully. 
+        // Since cursor moves in positive or negative direction, we assume gx,gz is the "start" corner.
+        // To simplify, let's just fill a box around the point regardless of direction
+        // Actually, simpler: iterate from min to max
+        
+        const startX = Math.min(gx, gx + w * (gx < 0 ? -1 : 1));
+        const startZ = Math.min(gz, gz + d * (gz < 0 ? -1 : 1));
+        
+        for (let i = 0; i < w; i++) {
+            for (let j = 0; j < d; j++) {
+                // Determine sign based on approximate direction logic or just absolute filling
+                // Let's just use the sign of the coordinates passed in
+                const signX = gx >= 0 ? 1 : -1;
+                const signZ = gz >= 0 ? 1 : -1;
+                
+                const cx = gx + (i * signX);
+                const cz = gz + (j * signZ);
+                this.occupiedCells.set(`${cx},${cz}`, true);
+            }
+        }
+    }
+
+    worldToGrid(worldPos) {
+        // Relative to TC
+        const dx = worldPos.x - this.origin.x;
+        const dz = worldPos.z - this.origin.z;
+        return {
+            x: Math.round(dx / this.config.gridSize),
+            z: Math.round(dz / this.config.gridSize)
+        };
+    }
+}
+```
+
+### How to Integrate into Your AI
+
+You need to initialize this planner once when the AI starts playing, and update it when the map generates.
+
+#### 1. Setup in AI Initialization
+Assuming your AI has access to the scene or its `TownCenter` position:
+
+```javascript
+// Inside your AI Class or setup
+class AIPlayer {
+    constructor(playerId, townCenterPos) {
+        this.playerId = playerId;
+        this.townCenterPos = townCenterPos;
+        
+        // 1. Create the Planner
+        this.cityPlanner = new CityPlanner(townCenterPos, {
+            gridSize: 10,     // Match your building scale
+            maxRadius: 120,   // Don't build too far
+            jitter: 0.5       // Tiny bit of randomness so it doesn't look TOO fake
+        });
+
+        // 2. Register existing map objects (Crucial!)
+        // The planner needs to know about Trees and Gold so it doesn't build on top of them.
+        this.scanAndRegisterObstacles();
+    }
+
+    scanAndRegisterObstacles() {
+        // Iterate through scene objects (or your game state list)
+        // You should filter for resources near the TC to save performance
+        scene.children.forEach(obj => {
+            if (obj.name === 'Tree' || obj.name === 'GoldMine' || obj.name === 'BerryBush') {
+                // Only register if within planning radius
+                if (obj.position.distanceTo(this.townCenterPos) < 120) {
+                    this.cityPlanner.registerObstacle(obj.position, obj.name);
+                }
+            }
+        });
+    }
+    
+    // ...
+}
+```
+
+#### 2. Using the Planner to Build
+When your AI decides it needs a House:
+
+```javascript
+// Inside your AI Tick/Update loop
+buildStructure(buildingType) {
+    // Ask planner for a spot
+    // Returns a RELATIVE Vector3 (e.g. x: 20, z: 20)
+    const relativePos = this.cityPlanner.planLocation(buildingType);
+
+    if (relativePos) {
+        // Calculate actual world position
+        const worldPos = this.townCenterPos.clone().add(relativePos);
+        
+        // Execute Build
+        createBuilding(buildingType, this.playerId, worldPos);
+        
+        // Optional: If you have construction logic (e.g. a scaffolding object), 
+        // register that immediately so the next building doesn't overlap the under-construction one.
+        this.cityPlanner.registerObstacle(worldPos, buildingType);
+        
+    } else {
+        console.log("AI: City is full! Cannot find space for " + buildingType);
+    }
+}
+```
+
+### Why this looks better
+1.  **Zoning**: Houses won't spawn next to Barracks anymore. Houses get the "Nice" quadrant, Barracks get the "Back" quadrant.
+2.  **Linear Expansion**: The cursor logic fills row 1, then row 2. This creates distinct "blocks" or streets, rather than a chaotic mess.
+3.  **Obstacle Awareness**: By scanning trees/gold, the AI will effectively "go around" resources or build in the gaps between forests, looking like it's adapting to the terrain.
+
+
+

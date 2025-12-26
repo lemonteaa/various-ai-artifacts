@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Serverless P2P RTS Prototype</title>
+    
+    <!-- Polyfills for SimplePeer to run in browser without build step -->
+    <!--<script src="https://unpkg.com/process@0.11.10/browser.js"></script>-->
+    <!--<script src="https://unpkg.com/buffer@6.0.3/dist/buffer.min.js"></script>-->
+    
+    <!-- Libraries -->
+    <script src="https://unpkg.com/simple-peer@9.11.1/simplepeer.min.js"></script>
+    <!--<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4"></script>-->
+
+    <style>
+        :root { --bg: #1e1e1e; --panel: #2d2d2d; --text: #e0e0e0; --accent: #4caf50; --danger: #f44336; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; display: flex; flex-wrap: wrap; gap: 20px; }
+        .panel { background: var(--panel); padding: 20px; border-radius: 8px; flex: 1; min-width: 300px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        h2 { margin-top: 0; border-bottom: 2px solid var(--accent); padding-bottom: 10px; }
+        button { background: var(--accent); border: none; padding: 10px 20px; color: white; cursor: pointer; border-radius: 4px; font-weight: bold; margin: 5px; }
+        button:disabled { background: #555; cursor: not-allowed; }
+        button.danger { background: var(--danger); }
+        input, textarea { width: 100%; background: #111; border: 1px solid #444; color: white; padding: 8px; margin: 5px 0; border-radius: 4px; box-sizing: border-box; font-family: monospace; }
+        textarea { resize: vertical; height: 80px; }
+        
+        /* Game Canvas */
+        #gameCanvas { background: #000; border: 2px solid #555; width: 100%; height: 300px; image-rendering: pixelated; }
+        
+        /* Status Log */
+        #log { height: 150px; overflow-y: auto; font-size: 12px; background: #111; padding: 10px; border: 1px solid #444; font-family: monospace; }
+        .log-entry { margin-bottom: 4px; }
+        .log-info { color: #888; }
+        .log-success { color: var(--accent); }
+        .log-error { color: var(--danger); }
+        
+        /* QR Container */
+        #qrcode { display: flex; justify-content: center; margin: 10px 0; background: white; padding: 10px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+    <!-- NETWORK & AUTH PANEL -->
+    <div class="panel">
+        <h2>1. Network Setup</h2>
+        <p><strong>Step A:</strong> Choose Role</p>
+        <button id="btnHost" onclick="app.hostGame()">Host Game</button>
+        <button id="btnJoin" onclick="app.initJoin()">Join Game</button>
+        
+        <div id="authSection" style="display:none; margin-top: 20px; border-top: 1px solid #444; padding-top: 10px;">
+            <p><strong>Step B:</strong> Security (Shared Secret)</p>
+            <input type="password" id="inpPassword" placeholder="Enter Room Password" />
+            <p id="joinSignalPrompt" style="display:none">Paste Host's Signal Data Here:</p>
+            <textarea id="inpSignal" placeholder="Signal data will appear here..."></textarea>
+            <button id="btnConnect" onclick="app.connect()">Connect / Start Handshake</button>
+        </div>
+
+        <div id="signalOutput" style="display:none; margin-top: 20px;">
+            <p><strong>Step C:</strong> Share this with peer:</p>
+            <textarea id="outSignal" readonly onclick="this.select()"></textarea>
+            <div id="qrcode"></div>
+            <p style="font-size: 10px; color: #888;">Scan QR or Copy JSON</p>
+        </div>
+    </div>
+
+    <!-- GAME SIMULATION PANEL -->
+    <div class="panel">
+        <h2>2. Game Simulation (Lockstep)</h2>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span>Tick: <span id="tickDisplay" style="color: var(--accent); font-weight: bold; font-size: 1.2em;">0</span></span>
+            <button id="btnStartGame" onclick="app.toggleGame()" disabled>Start Game</button>
+        </div>
+        <canvas id="gameCanvas" width="600" height="300"></canvas>
+        <div style="font-size: 12px; color: #888; margin-top: 5px;">
+            Controls: <strong>Host</strong> uses Arrow Keys. <strong>Client</strong> uses W/A/S/D. 
+            <br>Notice how inputs are locked to the tick rate.
+        </div>
+    </div>
+
+    <!-- SYSTEM LOG -->
+    <div class="panel" style="flex: 100%;">
+        <h2>3. System Log</h2>
+        <div id="log"></div>
+    </div>
+
+<script type="module">
+import QRCode from "https://cdn.jsdelivr.net/npm/qrcode-esm@1.5.1/build/qrcode.esm.js";
+
+/**
+ * ------------------------------------------------------------------
+ * MODULE 1: CRYPTOGRAPHY & AUTH
+ * Using Web Crypto API for Serverless Zero-Knowledge style auth
+ * ------------------------------------------------------------------
+ */
+const AuthService = {
+    async deriveKey(password, salt) {
+        const enc = new TextEncoder();
+        const keyMaterial = await window.crypto.subtle.importKey(
+            "raw", enc.encode(password), { name: "PBKDF2" }, false, ["deriveKey"]
+        );
+        return window.crypto.subtle.deriveKey(
+            { name: "PBKDF2", salt: salt, iterations: 100000, hash: "SHA-256" },
+            keyMaterial, { name: "HMAC", hash: "SHA-256", length: 256 }, true, ["sign", "verify"]
+        );
+    },
+
+    async sign(key, message) {
+        const enc = new TextEncoder();
+        const signature = await window.crypto.subtle.sign("HMAC", key, enc.encode(message));
+        return btoa(String.fromCharCode(...new Uint8Array(signature))); // Base64
+    },
+
+    async verify(key, message, signatureStr) {
+        try {
+            const enc = new TextEncoder();
+            const sig = Uint8Array.from(atob(signatureStr), c => c.charCodeAt(0));
+            return await window.crypto.subtle.verify("HMAC", key, sig, enc.encode(message));
+        } catch (e) { return false; }
+    }
+};
+
+/**
+ * ------------------------------------------------------------------
+ * MODULE 2: GAME ENGINE (Deterministic)
+ * "Clock, Action, State => New State"
+ * ------------------------------------------------------------------
+ */
+const GameEngine = {
+    // The Clock is an integer tick counter
+    init() {
+        return {
+            tick: 0,
+            players: {
+                host: { id: 'host', x: 50, y: 150, color: '#4caf50' }, // Green
+                client: { id: 'client', x: 550, y: 150, color: '#2196f3' } // Blue
+            }
+        };
+    },
+
+    // Pure Function: Inputs + CurrentState -> NextState
+    step(state, inputs) {
+        const nextState = JSON.parse(JSON.stringify(state)); // Deep clone for immutability
+        nextState.tick++;
+
+        // Apply Inputs
+        const speed = 5;
+        
+        // Host Input (Arrows)
+        if (inputs.host.up) nextState.players.host.y = Math.max(10, nextState.players.host.y - speed);
+        if (inputs.host.down) nextState.players.host.y = Math.min(290, nextState.players.host.y + speed);
+        if (inputs.host.left) nextState.players.host.x = Math.max(10, nextState.players.host.x - speed);
+        if (inputs.host.right) nextState.players.host.x = Math.min(590, nextState.players.host.x + speed);
+
+        // Client Input (WASD)
+        if (inputs.client.up) nextState.players.client.y = Math.max(10, nextState.players.client.y - speed);
+        if (inputs.client.down) nextState.players.client.y = Math.min(290, nextState.players.client.y + speed);
+        if (inputs.client.left) nextState.players.client.x = Math.max(10, nextState.players.client.x - speed);
+        if (inputs.client.right) nextState.players.client.x = Math.min(590, nextState.players.client.x + speed);
+
+        // Simple Interaction: Collision check
+        const dx = nextState.players.host.x - nextState.players.client.x;
+        const dy = nextState.players.host.y - nextState.players.client.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        
+        if (dist < 40) {
+            // Collision Physics: Push apart (Deterministic math)
+            const angle = Math.atan2(dy, dx);
+            nextState.players.host.x += Math.cos(angle) * 2;
+            nextState.players.host.y += Math.sin(angle) * 2;
+            nextState.players.client.x -= Math.cos(angle) * 2;
+            nextState.players.client.y -= Math.sin(angle) * 2;
+        }
+
+        return nextState;
+    }
+};
+
+const turnServers = []; //TODO: Fill in secret credentials here
+
+/**
+ * ------------------------------------------------------------------
+ * MODULE 3: NETWORK & PROTOCOL
+ * Handles Discovery, Auth, and Data Multiplexing
+ * ------------------------------------------------------------------
+ */
+class NetworkManager {
+    constructor(role, onConnect, onData) {
+        this.role = role; // 'host' or 'client'
+        this.peer = null;
+        this.onConnect = onConnect;
+        this.onData = onData;
+        this.isConnected = false;
+    }
+
+    createPeer(initiator, signalData = null) {
+        // SimplePeer configuration
+        this.peer = new SimplePeer({
+            initiator: initiator,
+            trickle: false, 
+            channelConfig: { ordered: true }, // Default to ordered for our main logic
+            //config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:global.stun.twilio.com:3478?transport=udp' }] }
+            config: { iceServers: turnServers }
+        });
+
+        this.peer.on('signal', (data) => {
+            // This triggers when we need to send SDP offer/answer/candidates
+            app.handleSignal(data);
+        });
+
+        this.peer.on('connect', () => {
+            this.isConnected = true;
+            app.log('WebRTC DataChannel Open!', 'success');
+            // Start Auth immediately upon connection
+            this.startAuth();
+        });
+
+        this.peer.on('data', (data) => {
+            // Handle raw buffer -> JSON
+            try {
+                const str = new TextDecoder().decode(data);
+                this.routePacket(JSON.parse(str));
+            } catch (e) { console.error("Data Parse Error", e); }
+        });
+
+        this.peer.on('error', (err) => app.log(`Peer Error: ${err}`, 'error'));
+
+        // Optional: Add logging for ICE state to diagnose NAT issues
+        this.peer.on('iceStateChange', (iceConnectionState, iceGatheringState) => {
+            console.log(`ICE State: ${iceConnectionState} (Gathering: ${iceGatheringState})`);
+            if (iceGatheringState === 'complete') {
+                 app.log("ICE Gathering Complete. Signal ready to copy.");
+            }
+        });
+    }
+
+    // --- PACKET ROUTER (Handling the "Multiple Streams" requirement) ---
+    // Instead of separate physical channels (complex to manage without raw WebRTC),
+    // we use a type-header protocol.
+    
+    send(type, payload) {
+        if (!this.isConnected) return;
+        const packet = { type, payload };
+        const blob = new TextEncoder().encode(JSON.stringify(packet));
+        this.peer.send(blob);
+    }
+
+    routePacket(packet) {
+        switch(packet.type) {
+            case 'AUTH_INIT':
+                this.handleAuthInit(packet.payload);
+                break;
+            case 'AUTH_RESP':
+                this.handleAuthResp(packet.payload);
+                break;
+            case 'AUTH_SUCCESS':
+                app.onAuthSuccess(packet.payload);
+                break;
+            case 'GAME_STATE': // Reliable Game Data (Inputs)
+                this.onData(packet.type, packet.payload);
+                break;
+            case 'EPHEMERAL': // Unreliable/Effects (Best Effort)
+                // In a real engine, we might drop these if queue is full
+                this.onData(packet.type, packet.payload);
+                break;
+        }
+    }
+
+    // --- AUTHENTICATION LOGIC ---
+    async startAuth() {
+        const password = document.getElementById('inpPassword').value;
+        if (!password) return app.log("No password set", 'error');
+
+        if (this.role === 'host') {
+            // 1. Host generates Salt and Challenge
+            this.salt = window.crypto.getRandomValues(new Uint8Array(16));
+            this.challenge = window.crypto.getRandomValues(new Uint8Array(16));
+            
+            // Derive Key
+            this.key = await AuthService.deriveKey(password, this.salt);
+
+            // Send Challenge
+            const payload = {
+                salt: Array.from(this.salt), // Convert to array for JSON
+                challenge: Array.from(this.challenge)
+            };
+            this.send('AUTH_INIT', payload);
+            app.log("Sent Auth Challenge to Client...");
+        } else {
+            // Client waits for AUTH_INIT
+        }
+    }
+
+    async handleAuthInit(payload) {
+        app.log("Received Auth Challenge. Verifying Password...");
+        const password = document.getElementById('inpPassword').value;
+        
+        const salt = new Uint8Array(payload.salt);
+        const challenge = new Uint8Array(payload.challenge);
+
+        // Derive Key using same salt
+        const key = await AuthService.deriveKey(password, salt);
+        
+        // Sign Challenge
+        const sig = await AuthService.sign(key, String.fromCharCode(...challenge));
+
+        // Send Response
+        this.send('AUTH_RESP', { signature: sig });
+    }
+
+    async handleAuthResp(payload) {
+        const sig = payload.signature;
+        const isValid = await AuthService.verify(this.key, String.fromCharCode(...this.challenge), sig);
+
+        if (isValid) {
+            app.log("Client Verified Successfully!", 'success');
+            this.send('AUTH_SUCCESS', { playerId: 'client' });
+            this.onConnect(); // Unlock Game
+        } else {
+            app.log("Auth FAILED: Password mismatch", 'error');
+            this.peer.destroy();
+        }
+    }
+}
+
+/**
+ * ------------------------------------------------------------------
+ * MODULE 4: MAIN APPLICATION LOGIC
+ * Glues UI, Game Loop, and Networking
+ * ------------------------------------------------------------------
+ */
+const app = {
+    role: null,
+    net: null,
+    gameState: null,
+    isRunning: false,
+    localInputs: { up: false, down: false, left: false, right: false },
+    pendingInputs: {}, // Buffers inputs from network for specific ticks
+    inputLock: false, // Simple input debounce
+
+    // --- UI HANDLERS ---
+    log(msg, type='info') {
+        const logEl = document.getElementById('log');
+        const entry = document.createElement('div');
+        entry.className = `log-entry log-${type}`;
+        entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        logEl.prepend(entry);
+    },
+
+    hostGame() {
+        this.role = 'host';
+        this.net = new NetworkManager('host', this.onNetworkReady.bind(this), this.onNetworkData.bind(this));
+        this.net.createPeer(true); // Initiator
+        this.setupUI("Hosting...");
+    },
+
+    initJoin() {
+        this.role = 'client';
+        this.net = new NetworkManager('client', this.onNetworkReady.bind(this), this.onNetworkData.bind(this));
+        console.log("Created client");
+        this.net.createPeer(false); //Both side need a simple peer instance, of course!
+        document.getElementById('joinSignalPrompt').style.display = 'block';
+        document.getElementById('inpSignal').placeholder = '';
+        //document.getElementById('inpSignal').style.display = 'none';
+        /*document.getElementById('btnConnect').style.display = 'inline-block';
+        document.getElementById('btnHost').disabled = true;
+        document.getElementById('btnJoin').disabled = true;*/
+        this.setupUI('client...');
+    },
+
+    connect() {
+        const signalStr = document.getElementById('inpSignal').value;
+        console.log(signalStr);
+        try {
+            const signalData = JSON.parse(signalStr);
+            //this.net.createPeer(false, signalData);
+            this.net.peer.signal(signalData);
+            this.setupUI("Joining...");
+        } catch (e) {
+            this.log("Invalid Signal Data", 'error');
+        }
+    },
+
+    handleSignal(data) {
+        console.log(data);
+        const json = JSON.stringify(data);
+        const outEl = document.getElementById('outSignal');
+        outEl.value = json;
+        outEl.style.display = 'block';
+        document.getElementById('signalOutput').style.display = 'block';
+
+        // Generate QR Code
+        const qrContainer = document.getElementById('qrcode');
+        qrContainer.innerHTML = '';
+        QRCode.toCanvas(json, { width: 200 }, (err, canvas) => {
+            if (!err) qrContainer.appendChild(canvas);
+        });
+    },
+
+    setupUI(status) {
+        document.getElementById('authSection').style.display = 'block';
+        document.getElementById('btnHost').disabled = true;
+        document.getElementById('btnJoin').disabled = true;
+        this.log(`Role: ${status}`);
+    },
+
+    onAuthSuccess(data) {
+        this.log("Authenticated with Host!", 'success');
+        this.onNetworkReady();
+    },
+
+    onNetworkReady() {
+        document.getElementById('btnStartGame').disabled = false;
+        document.getElementById('inpPassword').disabled = true;
+        this.log("Connection Secure. Ready to Start Game.");
+        
+        // Init Game State
+        this.gameState = GameEngine.init();
+        this.render();
+    },
+
+    // --- GAME LOOP ---
+    toggleGame() {
+        this.isRunning = !this.isRunning;
+        document.getElementById('btnStartGame').textContent = this.isRunning ? "Pause Game" : "Resume Game";
+        if (this.isRunning) this.gameLoop();
+    },
+
+    gameLoop() {
+        if (!this.isRunning) return;
+
+        // 1. Determine Inputs for NEXT Tick
+        // In a robust RTS, we would wait until we have inputs from ALL peers for tick X.
+        // For this simple prototype, we run at a fixed pace and inject whatever inputs we have.
+        
+        // Prepare inputs object
+        const inputs = {
+            host: { ...this.localInputs }, // Snapshot local inputs
+            client: { up:false, down:false, left:false, right:false } // Default
+        };
+
+        // If Host, we broadcast the state. If Client, we wait for Host.
+        if (this.role === 'host') {
+            // Host calculates next state immediately
+            // (In a real app, Host would wait for Client input packet before advancing)
+            // Simulating latency by assuming we have inputs or defaulting
+            
+            // Broadcast Input + State to Client for consistency
+            const payload = {
+                tick: this.gameState.tick + 1,
+                inputs: inputs, // Host decides inputs (simulating perfect sync for demo)
+                state: null // We'll send state only if desync detected usually, here we just sync inputs
+            };
+            
+            // Send the authoritative input vector
+            this.net.send('GAME_STATE', payload);
+
+            // Apply logic
+            this.gameState = GameEngine.step(this.gameState, inputs);
+
+        } else {
+            // Client: We need to wait for Host's data packet to advance
+            // For this visual prototype, we won't block the loop, 
+            // but in a lockstep RTS, we WOULD block here.
+            // We will simulate "waiting" by not updating state until onNetworkData receives it.
+        }
+
+        this.render();
+        
+        // Loop at 20Hz (RTS logic speed)
+        setTimeout(() => requestAnimationFrame(() => this.gameLoop()), 50);
+    },
+
+    onNetworkData(type, payload) {
+        if (type === 'GAME_STATE') {
+            if (this.role === 'client') {
+                // Client receives authoritative tick and inputs
+                this.gameState = GameEngine.step(this.gameState, payload.inputs);
+            }
+            // Host would also process client inputs here in a real mesh
+        }
+        if (type === 'EPHEMERAL') {
+            // Example: Particle effects
+            console.log("Received ephemeral:", payload);
+        }
+    },
+
+    // --- INPUT HANDLING ---
+    handleKey(e, isDown) {
+        // Host: Arrows, Client: WASD
+        const isHost = this.role === 'host';
+        
+        if (isHost) {
+            if (e.key === 'ArrowUp') this.localInputs.up = isDown;
+            if (e.key === 'ArrowDown') this.localInputs.down = isDown;
+            if (e.key === 'ArrowLeft') this.localInputs.left = isDown;
+            if (e.key === 'ArrowRight') this.localInputs.right = isDown;
+        } else {
+            if (e.key.toLowerCase() === 'w') this.localInputs.up = isDown;
+            if (e.key.toLowerCase() === 's') this.localInputs.down = isDown;
+            if (e.key.toLowerCase() === 'a') this.localInputs.left = isDown;
+            if (e.key.toLowerCase() === 'd') this.localInputs.right = isDown;
+        }
+
+        // Send input as "Ephemeral" (prediction) or reliable depending on design
+        // Here we just update local state which gets picked up by the loop
+    },
+
+    // --- RENDERING ---
+    render() {
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Clear
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Grid
+        ctx.strokeStyle = '#222';
+        ctx.beginPath();
+        for(let i=0; i<canvas.width; i+=50) { ctx.moveTo(i,0); ctx.lineTo(i,canvas.height); }
+        for(let i=0; i<canvas.height; i+=50) { ctx.moveTo(0,i); ctx.lineTo(canvas.width,i); }
+        ctx.stroke();
+
+        if (!this.gameState) return;
+
+        // Draw Players
+        Object.values(this.gameState.players).forEach(p => {
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 15, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Label
+            ctx.fillStyle = '#fff';
+            ctx.font = '10px monospace';
+            ctx.fillText(p.id.toUpperCase(), p.x - 10, p.y - 20);
+        });
+
+        document.getElementById('tickDisplay').textContent = this.gameState.tick;
+    }
+};
+
+// Bind Inputs
+window.addEventListener('keydown', (e) => app.handleKey(e, true));
+window.addEventListener('keyup', (e) => app.handleKey(e, false));
+
+// Expose to window for HTML buttons
+window.app = app;
+
+</script>
+</body>
+</html>
