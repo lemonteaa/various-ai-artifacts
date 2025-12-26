@@ -1,0 +1,77 @@
+The user wants me to create a self-contained HTML/CSS/JS file for an Age of Empires-like RTS game prototype. They have specific feedback from a previous AI attempt that resulted in some visual and functional issues.
+
+Key requirements:
+1.  **Conserve Original Design**: Keep the original UI (Emoji icons for resources, specific layout of resource bar and control panel) exactly as is.
+2.  **Add New Features**:
+    *   Top-right menu (Game menu, Pause, Save/Load).
+    *   Civ Icon & Tech Tree (Top Center).
+    *   Age Progression (Next to Civ Icon).
+    *   Multi-page transitions (Prepare Game, Game, After Game).
+    *   Tech Tree "Family Tree" visual (not just a grid).
+    *   Stats Screen (Tables, Charts).
+3.  **Fix Previous Issues**:
+    *   Fix alignment issues caused by image-based icons (stick to emoji/text or fixed-size SVGs).
+    *   Ensure top-right buttons are clickable.
+    *   Tech Tree dependency logic (Gray out parents, show tree structure).
+4.  **SVG Aesthetics**: Low-poly 3D style.
+5.  **Testing**: The code must run without the actual game engine logic, simulating just the UI.
+
+**Plan:**
+
+1.  **Structure**:
+    *   Start with the provided "Original" HTML/CSS structure.
+    *   Inject the new "Page" structure (Prepare, Game, Stats) without breaking the existing Game HUD placement.
+    *   Inject the "Modal" structure for Tech Tree and Menu.
+
+2.  **CSS**:
+    *   Use the original CSS variables.
+    *   Define the `.page` classes carefully to overlay or replace the canvas, but keep the `#ui-layer` distinct.
+    *   For the new features (Civ, Age, Tech Tree), use specific styling that matches the "Low Poly" request but doesn't interfere with the bottom panel.
+    *   Tech Tree: Use CSS Flex/Grid with connectors (pseudo-elements) to create a "Tree" look.
+
+3.  **JavaScript**:
+    *   **State**: Mock state for Civ, Age, Techs, Resources.
+    *   **UI Controller**:
+        *   `switchPage()`: Logic to hide/show Prepare/Game/Stats divs.
+        *   `renderTechTree()`: Recursive function to build the DOM tree based on dependencies. This solves the "family tree" requirement.
+        *   `openModal()` / `closeModal()`.
+    *   **Interaction**: Hook up the top-right buttons and the Civ icon.
+
+4.  **SVG**:
+    *   Embed the SVGs in a `<defs>` block at the bottom.
+    *   Ensure icons are referenced via `<use>` and sized appropriately in the CSS so they don't break layouts (unlike the previous attempt).
+
+**Detailed Tech Tree Implementation:**
+The user wants a "family tree" visual.
+*   Level 1 (Roots)
+*   Level 2 (Branches)
+*   Level 3 (Advanced)
+*   I will use a nested Flexbox approach or a Canvas/SVG line drawer. For simplicity in a single HTML file, CSS Flexbox with `flex-direction: column` for layers and `row` for items, plus SVG lines connecting parents to children is robust.
+*   *Correction*: Drawing lines between HTML elements in pure HTML/CSS without libraries is tricky. A simpler "Family Tree" approach using CSS connectors (pseudo-elements) is more reliable for a self-contained file. I'll group techs by "Era" and within that, display dependencies visually.
+
+**Refining the "Original" Preservation:**
+The user emphasized preserving the original visuals.
+*   Resource Bar: `🪵 🌾 🪙 🛢️` emojis.
+*   Bottom Panel: Same layout.
+*   Colors: Same variables.
+
+Let's build the file.
+
+**Step 1: HTML Skeleton & CSS**
+I will copy the exact CSS from the first snippet, then add the new classes (`#civ-identity`, `#tech-tree-modal`, `.tech-node`, etc.) *after* it to override/add, ensuring the base is safe.
+
+**Step 2: The Tech Tree Logic**
+I'll define a `techTree` object where keys are IDs and values contain `children` or `parents`. The renderer will start from root nodes (no parents) and render downwards.
+
+**Step 3: Pages**
+*   **Prepare**: A clean overlay.
+*   **Game**: The default state.
+*   **Stats**: A summary screen.
+
+**Step 4: SVG**
+I will create distinct, Low-Poly style SVG icons for the requested Civs (Goth, Japan, Egypt, Babylon), Ages (Stone, Bronze, Iron, Medieval), and Techs (Agriculture, Metallurgy, etc.).
+
+**Step 5: JS Integration**
+Connect the buttons.
+
+Let's write the code.

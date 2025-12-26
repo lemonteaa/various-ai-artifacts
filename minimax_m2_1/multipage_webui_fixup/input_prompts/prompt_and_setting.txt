@@ -1,0 +1,25 @@
+Attached is transcript of a previous AI coding session with various other AI. Current situation:
+- the first AI only give high level conceptual instructions, but is sparse on details.
+- So, I feed it into another AI. It complied, but accidentally modified the original, existing UI design/layout. I want to preserve the original visuals while only *adding* to it.
+- Code refactoring internally is okay however, such as adding a simple page transition system etc.
+- Need to have a way to test the UI, **without** implementing the actual game logic (the codebase above is actually a trimmed down snippet *extracted* from an already functional full game specifically to decrease distraction)
+
+Specific feedback on second AI's performance:
+- I like its component design for the civ + age banner, but it changed the resource type into logo (don't - the original utf-8 emoji is great for me), as a side effect the missized resource type logo lead to that banner no longer center aligned.
+- clicking on the top right buttons doesn't seem to work.
+- Tech tree dialog is partially working, svg of the tech is nice (I like that part), research progress animation + gray-out etc also work, but the dependency tree structure become more like an excel layout (top to bottom, left to right). I want something whosee visual is like a family tree.
+
+Overall, I want you to be on the side of caution/conservatism while still achieving the aim of implementing UI phase 2. Thanks!
+
+
+----
+
+
+prompt = f"<uploaded_doc>{original}</uploaded_doc> {inst}"
+res = cli.chat.completions.create(model='minimax/minimax-m2.1', messages=[ { 'role': 'system', 'content': 'You are a helpful assistant. Your name is MiniMax-M2.1 and is built by MiniMax.' } , { 'role': 'user', 'content': prompt } ], max_tokens=64000, temperature=1.0, top_p = 0.95)
+
+----
+
+
+Very good! Now, I want you to continue by 1) add the diplomacy screen. It has a button next to the menu button in top right hand corner of main game screen. The diplomacy window has a table list of player (one per row), columns are: name, relation, tribute (3 buttons: food, wood, gold, clicking will show a number on top of the button, +100 each time). Have column name on top. 2) Enhance the prepare game screen. currently it work but is minimalistic. Recalling the uploaded doc desc: make the html page able to do multi page transition, have a "Prepare Game" page before game begins, where game setting can be configured - number of opponents, player color, civilization, ai or human control. On right hand side are some global settings. Okay, my proposed design is: two column layout, left column is a table list of player with the per player settings there. right columns are general settings. Many thanks!
+

@@ -1,0 +1,24 @@
+The user wants me to continue developing the UI for this Age of Empires-style RTS game prototype. Specifically, they want:
+
+1. A diplomacy screen with:
+   - A button next to the menu button in the top right corner
+   - A table with rows for each player
+   - Columns: Name, Relation, Tribute (with 3 buttons: food, wood, gold)
+   - Clicking tribute buttons shows a number on top (+100 each time)
+   - Column names at the top
+
+2. Enhanced "Prepare Game" screen:
+   - Two column layout
+   - Left column: table list of players with per-player settings (civilization, color, AI/Human)
+   - Right column: global settings (map size, resources, etc.)
+   - Based on the original uploaded doc description
+
+I need to:
+1. Preserve the existing visual design (low poly aesthetic, consistent colors)
+2. Add the new diplomacy button to the top menu
+3. Create a new diplomacy modal with a table layout
+4. Redesign the prepare screen with a two-column layout
+5. Add player slot management (add/remove players)
+6. Style everything consistently with the existing code
+
+Let me create a comprehensive update that includes all these features while maintaining the existing UI's look and feel.

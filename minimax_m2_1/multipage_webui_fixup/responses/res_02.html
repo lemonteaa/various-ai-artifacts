@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Age of Empires 3D Prototype (UI Expansion)</title>
+    <style>
+        :root {
+            --ui-bg: rgba(20, 20, 30, 0.95);
+            --ui-border: #8b7e66;
+            --ui-text: #f0e6d2;
+            --accent: #d4af37;
+            --danger: #ff4444;
+            --accent-hover: #f9d868;
+            --modal-overlay: rgba(0, 0, 0, 0.85);
+            --bg-dark: #1a1a1a;
+            --bg-panel: #252530;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-dark);
+            user-select: none;
+        }
+
+        /* --- 3D Canvas Placeholder --- */
+        #game-container {
+            position: absolute;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            z-index: 1;
+            background: radial-gradient(circle at center, #2b3340 0%, #0f1219 100%);
+        }
+        
+        #canvas-hint {
+            position: absolute; top: 50%; left: 50%; 
+            transform: translate(-50%, -50%);
+            color: rgba(255,255,255,0.08); font-size: 6rem; font-weight: bold;
+            pointer-events: none; z-index: 0;
+            letter-spacing: 10px;
+        }
+
+        /* --- UI Overlay Layer --- */
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 10;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .interactive { pointer-events: auto; }
+
+        /* Top Resource Bar */
+        #resource-bar {
+            background: var(--ui-bg);
+            border-bottom: 2px solid var(--ui-border);
+            padding: 8px 20px;
+            display: flex;
+            gap: 20px;
+            color: var(--ui-text);
+            font-weight: bold;
+            font-size: 1rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            align-items: center;
+            position: relative;
+        }
+
+        .res-item { display: flex; align-items: center; gap: 6px; }
+        .res-icon { font-size: 1.2rem; }
+        
+        /* --- Center: Civ & Age Banner --- */
+        #civ-status-area {
+            position: absolute;
+            top: 8px; left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: rgba(20, 20, 30, 0.9);
+            border: 1px solid var(--ui-border);
+            border-radius: 6px;
+            padding: 5px 15px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        #civ-status-area:hover { background: rgba(40, 40, 55, 0.95); border-color: var(--accent); }
+
+        #civ-icon {
+            width: 32px; height: 32px;
+            fill: var(--ui-text);
+        }
+        #civ-details { display: flex; flex-direction: column; }
+        #civ-name { font-size: 0.75rem; color: var(--accent); font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
+        #age-display { font-size: 0.7rem; color: #aaa; display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+        
+        .advance-age-btn {
+            background: linear-gradient(to bottom, #3a3a4e, #2a2a3e);
+            border: 1px solid var(--ui-border);
+            color: var(--ui-text);
+            font-size: 0.65rem;
+            padding: 2px 6px;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .advance-age-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+        /* --- Top Right: Menu & Diplomacy --- */
+        #top-menu {
+            margin-left: auto;
+            display: flex;
+            gap: 8px;
+        }
+        .top-menu-btn {
+            background: transparent;
+            border: 1px solid transparent;
+            color: var(--ui-text);
+            font-size: 1.1rem;
+            width: 34px; height: 34px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.2s;
+        }
+        .top-menu-btn:hover { background: rgba(255,255,255,0.1); border-color: var(--ui-border); }
+
+        /* --- Bottom Control Panel --- */
+        #control-panel {
+            background: var(--ui-bg);
+            border-top: 3px solid var(--ui-border);
+            padding: 15px;
+            height: 140px;
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        #selection-info {
+            width: 220px;
+            border-right: 1px solid var(--ui-border);
+            padding-right: 15px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        #selection-name { font-size: 1.3rem; color: var(--accent); font-weight: bold; margin-bottom: 5px; }
+        #selection-stats { font-size: 0.9rem; color: #ccc; }
+        #queue-info { font-size: 0.8rem; color: #aaa; margin-top: 5px; }
+
+        #actions-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 8px;
+            flex-grow: 1;
+        }
+
+        .action-btn {
+            background: linear-gradient(to bottom, #4a4a5e, #2a2a3e);
+            border: 1px solid var(--ui-border);
+            color: var(--ui-text);
+            padding: 8px;
+            cursor: pointer;
+            transition: all 0.1s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            position: relative;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.2);
+            border-radius: 4px;
+        }
+
+        .action-btn:hover { background: #505070; border-color: var(--accent); transform: translateY(-1px); }
+        .action-btn:active { transform: translateY(1px); }
+        .action-btn:disabled { opacity: 0.4; cursor: not-allowed; filter: grayscale(1); }
+        
+        .cost-tooltip { font-size: 0.7rem; color: #aaa; margin-top: 2px; }
+        .hotkey { position: absolute; top: 2px; right: 4px; font-size: 0.7rem; color: #ffd700; font-weight: bold; }
+
+        /* Selection Box */
+        #selection-box {
+            position: absolute;
+            border: 1px solid #00ff00;
+            background: rgba(0, 255, 0, 0.1);
+            pointer-events: none;
+            display: none;
+            z-index: 5;
+        }
+
+        /* Notifications */
+        #notification-area {
+            position: absolute; top: 80px; left: 50%;
+            transform: translateX(-50%);
+            display: flex; flex-direction: column; gap: 5px; align-items: center;
+        }
+        .toast {
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            border-left: 4px solid var(--accent);
+            animation: fadeOut 3s forwards;
+        }
+        @keyframes fadeOut { 0% { opacity: 1; transform: translateY(0); } 80% { opacity: 1; } 100% { opacity: 0; transform: translateY(-20px); } }
+
+        /* --- Full Screen Pages --- */
+        .full-page {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--bg-dark);
+            z-index: 50;
+            display: none;
+            flex-direction: column;
+        }
+        .full-page.active { display: flex; }
+        
+        /* Prepare Screen - Two Column Layout */
+        #prepare-screen { background: radial-gradient(circle at center, #2b3340 0%, #111 100%); }
+        .prepare-container {
+            flex-grow: 1; display: flex; padding: 40px; gap: 40px; overflow: hidden;
+        }
+        .prepare-column {
+            background: var(--ui-bg);
+            border: 2px solid var(--ui-border);
+            display: flex; flex-direction: column;
+            box-shadow: 0 0 30px rgba(0,0,0,0.8);
+        }
+        .prepare-column.left { flex: 1.5; } /* Player List */
+        .prepare-column.right { flex: 1; }  /* Global Settings */
+        
+        .column-header {
+            padding: 15px 20px;
+            background: rgba(0,0,0,0.3);
+            border-bottom: 1px solid var(--ui-border);
+            font-size: 1.1rem; color: var(--accent); font-weight: bold;
+            text-transform: uppercase; letter-spacing: 2px;
+        }
+        
+        .column-content {
+            flex-grow: 1; padding: 20px; overflow-y: auto;
+        }
+
+        /* Player List Table */
+        .player-list { width: 100%; border-collapse: collapse; }
+        .player-list th {
+            text-align: left; padding: 10px; color: #888; font-size: 0.8rem; text-transform: uppercase;
+            border-bottom: 1px solid var(--ui-border);
+        }
+        .player-list td { padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .player-list tr:hover { background: rgba(255,255,255,0.03); }
+        
+        .player-name-input {
+            background: transparent; border: none; color: var(--ui-text); font-weight: bold; width: 100%;
+            font-size: 1rem; font-family: inherit;
+        }
+        .player-name-input:focus { outline: none; border-bottom: 1px solid var(--accent); }
+        
+        .player-select {
+            background: #1a1a20; border: 1px solid var(--ui-border); color: var(--ui-text);
+            padding: 5px; border-radius: 3px; width: 100%; font-family: inherit; cursor: pointer;
+        }
+        
+        .player-color {
+            width: 30px; height: 30px; border: 2px solid var(--ui-border); border-radius: 4px; cursor: pointer;
+        }
+        
+        .slot-controls { display: flex; gap: 5px; margin-top: 15px; }
+        .slot-btn {
+            flex: 1; padding: 8px; background: #2a2a35; border: 1px solid var(--ui-border);
+            color: var(--ui-text); cursor: pointer; border-radius: 4px; font-size: 0.85rem;
+        }
+        .slot-btn:hover { background: #3a3a45; border-color: var(--ui-border-highlight); }
+        .slot-btn.remove:hover { background: rgba(255, 68, 68, 0.2); border-color: var(--danger); color: var(--danger); }
+
+        /* Global Settings Form */
+        .setting-group { margin-bottom: 20px; }
+        .setting-group label { display: block; color: #aaa; font-size: 0.85rem; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; }
+        .setting-select {
+            width: 100%; background: #1a1a20; border: 1px solid var(--ui-border); color: var(--ui-text);
+            padding: 10px; border-radius: 4px; font-family: inherit; font-size: 0.95rem;
+        }
+        .setting-select:focus { outline: none; border-color: var(--accent); }
+        
+        .start-btn {
+            width: 100%; padding: 18px; margin-top: auto;
+            background: var(--accent); border: none; color: #000; font-weight: bold; font-size: 1.3rem;
+            text-transform: uppercase; cursor: pointer; border-radius: 4px;
+            letter-spacing: 2px; transition: all 0.2s;
+        }
+        .start-btn:hover { background: var(--accent-hover); transform: translateY(-2px); box-shadow: 0 5px 20px rgba(212, 175, 55, 0.3); }
+
+        /* Stats Screen */
+        #stats-screen { background: #151515; }
+        .stats-header { padding: 20px 30px; border-bottom: 1px solid var(--ui-border); display: flex; justify-content: space-between; align-items: center; background: var(--ui-bg); }
+        .tab-group { display: flex; gap: 5px; }
+        .tab-btn {
+            background: transparent; border: 1px solid var(--ui-border); color: #888; padding: 10px 20px; cursor: pointer; border-radius: 4px; font-size: 0.9rem; transition: all 0.2s;
+        }
+        .tab-btn:hover { color: var(--ui-text); border-color: var(--ui-border-highlight); }
+        .tab-btn.active { background: var(--ui-border); color: white; border-color: var(--ui-border-highlight); }
+        
+        .stats-body { flex-grow: 1; padding: 30px; display: flex; gap: 30px; overflow: hidden; }
+        .stats-panel { background: #1f1f25; border: 1px solid #333; padding: 20px; flex: 1; display: flex; flex-direction: column; border-radius: 4px; }
+        .stats-table { width: 100%; border-collapse: collapse; margin-top: 10px; flex-grow: 1; }
+        .stats-table th { text-align: left; color: var(--accent); border-bottom: 1px solid #444; padding: 12px 10px; font-size: 0.85rem; text-transform: uppercase; }
+        .stats-table td { padding: 12px 10px; border-bottom: 1px solid #333; color: #ccc; font-size: 0.95rem; }
+        .stats-table tr:last-child td { border-bottom: none; }
+        
+        .chart-area { flex: 1; display: flex; flex-direction: column; }
+        .chart-title { color: #aaa; font-size: 0.85rem; text-transform: uppercase; margin-bottom: 15px; }
+        .bar-chart-row { margin-bottom: 12px; }
+        .bar-label { font-size: 0.8rem; color: #999; margin-bottom: 4px; display: flex; justify-content: space-between; }
+        .bar-track { height: 14px; background: #2a2a35; border-radius: 7px; overflow: hidden; }
+        .bar-fill { height: 100%; background: linear-gradient(to right, var(--accent), #f9d868); width: 0%; transition: width 1s ease-out; border-radius: 7px; }
+
+        /* --- Modals --- */
+        .modal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--modal-overlay);
+            z-index: 100;
+            display: none;
+            align-items: center; justify-content: center;
+            backdrop-filter: blur(3px);
+        }
+        .modal.active { display: flex; }
+        
+        .modal-window {
+            background: var(--ui-bg);
+            border: 2px solid var(--ui-border);
+            box-shadow: 0 0 50px rgba(0,0,0,0.9);
+            min-width: 600px;
+            max-height: 80vh;
+            display: flex; flex-direction: column;
+            animation: modalSlideIn 0.25s ease-out;
+        }
+        @keyframes modalSlideIn { from { transform: translateY(-30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        
+        .modal-header { padding: 15px 25px; border-bottom: 1px solid var(--ui-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2); }
+        .modal-title { font-size: 1.2rem; color: var(--accent); font-weight: bold; letter-spacing: 1px; }
+        .modal-close { background: none; border: none; color: #888; font-size: 1.8rem; cursor: pointer; line-height: 1; transition: color 0.2s; }
+        .modal-close:hover { color: white; }
+        
+        .modal-body { padding: 25px; overflow-y: auto; }
+
+        /* Game Menu */
+        .menu-list { display: flex; flex-direction: column; gap: 8px; }
+        .menu-item {
+            padding: 14px 18px; border: 1px solid transparent; background: rgba(255,255,255,0.03);
+            color: var(--ui-text); text-align: left; font-size: 1rem; cursor: pointer; transition: all 0.2s;
+            display: flex; align-items: center; gap: 12px; border-radius: 4px;
+        }
+        .menu-item:hover { background: rgba(255,255,255,0.08); border-color: var(--ui-border); padding-left: 22px; }
+        .menu-item span { font-size: 1.2rem; opacity: 0.8; }
+        .menu-item.danger:hover { background: rgba(255, 68, 68, 0.15); border-color: var(--danger); color: #ff8888; }
+
+        /* Diplomacy Table */
+        .diplomacy-table { width: 100%; border-collapse: collapse; }
+        .diplomacy-table th {
+            text-align: left; padding: 12px 15px; color: #888; font-size: 0.8rem; text-transform: uppercase;
+            border-bottom: 2px solid var(--ui-border); letter-spacing: 1px;
+        }
+        .diplomacy-table td { padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        
+        .player-cell { display: flex; align-items: center; gap: 10px; }
+        .player-swatch { width: 16px; height: 16px; border-radius: 3px; }
+        .player-name { font-weight: bold; }
+        
+        .relation-badge {
+            padding: 4px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: bold;
+        }
+        .relation-neutral { background: #444; color: #ccc; }
+        .relation-friendly { background: rgba(68, 255, 68, 0.2); color: #8f8; border: 1px solid #4f4; }
+        .relation-hostile { background: rgba(255, 68, 68, 0.2); color: #f88; border: 1px solid #f44; }
+        
+        .tribute-controls { display: flex; gap: 8px; }
+        .tribute-btn {
+            width: 50px; height: 36px; background: #2a2a35; border: 1px solid var(--ui-border);
+            color: var(--ui-text); border-radius: 4px; cursor: pointer; position: relative;
+            display: flex; align-items: center; justify-content: center; font-size: 1rem;
+            transition: all 0.2s;
+        }
+        .tribute-btn:hover { background: #3a3a45; border-color: var(--accent); }
+        .tribute-count {
+            position: absolute; top: -8px; right: -8px; background: var(--accent); color: #000;
+            font-size: 0.7rem; font-weight: bold; padding: 2px 5px; border-radius: 8px; min-width: 16px;
+            animation: pulseIn 0.3s ease-out;
+        }
+        @keyframes pulseIn { from { transform: scale(0); } to { transform: scale(1); } }
+
+        /* Tech Tree Visuals */
+        .tech-tree-container { display: flex; flex-direction: column; align-items: center; gap: 25px; padding-bottom: 20px; }
+        .tech-era-section { width: 100%; }
+        .tech-era-header { 
+            font-size: 0.85rem; color: #666; text-transform: uppercase; letter-spacing: 2px; 
+            margin-bottom: 12px; padding-bottom: 5px; border-bottom: 1px solid #333;
+        }
+        .tech-row { display: flex; justify-content: center; gap: 30px; position: relative; }
+        
+        .tech-node {
+            width: 70px; height: 75px;
+            background: #2a2a35; border: 1px solid var(--ui-border);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            border-radius: 4px; position: relative; cursor: pointer; transition: all 0.2s;
+        }
+        .tech-node svg { width: 28px; height: 28px; margin-bottom: 4px; fill: #999; pointer-events: none; }
+        .tech-node span { font-size: 0.65rem; text-align: center; color: #bbb; pointer-events: none; }
+        
+        .tech-node.locked { opacity: 0.35; filter: grayscale(1); cursor: not-allowed; }
+        .tech-node.available:hover { border-color: var(--accent); transform: translateY(-3px); box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
+        .tech-node.researched { border-color: #4f4; background: rgba(68, 255, 68, 0.08); }
+        .tech-node.researched svg { fill: #4f4; }
+        .tech-node.researching { pointer-events: none; }
+        .tech-node.researching::after {
+            content: ''; position: absolute; bottom: 0; left: 0; height: 3px; background: var(--accent);
+            width: 0%; animation: loadProgress 2s linear forwards;
+        }
+        @keyframes loadProgress { from { width: 0%; } to { width: 100%; } }
+
+        .tech-node.researching svg { animation: iconSpin 2s linear; }
+        @keyframes iconSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+    </style>
+</head>
+<body>
+
+    <!-- 3D Canvas -->
+    <div id="game-container">
+        <div id="canvas-hint">EMPIRE 3D</div>
+    </div>
+    <div id="selection-box"></div>
+
+    <!-- UI Overlay -->
+    <div id="ui-layer">
+        <!-- Top Bar -->
+        <div id="resource-bar" class="interactive">
+            <!-- Resources (Emojis preserved) -->
+            <div class="res-item"><span class="res-icon">🪵</span> <span id="res-wood">200</span></div>
+            <div class="res-item"><span class="res-icon">🌾</span> <span id="res-food">200</span></div>
+            <div class="res-item"><span class="res-icon">🪙</span> <span id="res-gold">100</span></div>
+            <div class="res-item"><span class="res-icon">🛢️</span> <span id="res-oil">0</span></div>
+            <div class="res-item" style="margin-left:auto; color: #aaa; font-size: 0.9rem;">
+                Pop: <span id="res-pop">0</span>/<span id="res-max-pop">10</span>
+            </div>
+
+            <!-- Center: Civ & Age Banner -->
+            <div id="civ-status-area" class="interactive" onclick="UI.openModal('tech-modal')">
+                <svg id="civ-icon"><use href="#civ-babylon"/></svg>
+                <div id="civ-details">
+                    <div id="civ-name">Babylonians</div>
+                    <div id="age-display">
+                        <span id="current-age">Stone Age</span>
+                        <button class="advance-age-btn" id="btn-advance-age" onclick="event.stopPropagation(); Game.advanceAge()">Advance Age</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Menu & Diplomacy -->
+            <div id="top-menu">
+                <button class="top-menu-btn interactive" onclick="UI.openModal('diplomacy-modal')" title="Diplomacy">📜</button>
+                <button class="top-menu-btn interactive" onclick="UI.openModal('menu-modal')" title="Game Menu">⚙️</button>
+            </div>
+        </div>
+
+        <!-- Notifications -->
+        <div id="notification-area"></div>
+
+        <!-- Bottom Panel -->
+        <div id="control-panel" class="interactive">
+            <div id="selection-info">
+                <div id="selection-name">Nothing Selected</div>
+                <div id="selection-stats">-</div>
+                <div id="queue-info"></div>
+            </div>
+            <div id="actions-grid"></div>
+        </div>
+    </div>
+
+    <!-- SVG Sprite Definitions -->
+    <svg width="0" height="0" style="position:absolute">
+        <defs>
+            <!-- Civilizations (Low Poly Style) -->
+            <symbol id="civ-babylon" viewBox="0 0 100 100">
+                <rect x="25" y="30" width="50" height="60" fill="#c2b280"/>
+                <polygon points="25,30 50,5 75,30" fill="#e0d5a0"/>
+                <rect x="40" y="45" width="20" height="45" fill="#4a4036"/>
+            </symbol>
+            <symbol id="civ-egypt" viewBox="0 0 100 100">
+                <polygon points="50,15 85,85 15,85" fill="#d4af37"/>
+                <circle cx="50" cy="60" r="8" fill="#8b4513" opacity="0.5"/>
+            </symbol>
+            <symbol id="civ-goth" viewBox="0 0 100 100">
+                <path d="M50 10 L15 85 L85 85 Z" fill="#666"/>
+                <path d="M50 10 L50 85" stroke="#333" stroke-width="6"/>
+            </symbol>
+            <symbol id="civ-japan" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="40" fill="#cc0000"/>
+                <circle cx="50" cy="50" r="25" fill="#ffffff"/>
+            </symbol>
+
+            <!-- Ages -->
+            <symbol id="age-stone" viewBox="0 0 100 100">
+                <polygon points="30,35 70,35 80,75 20,75" fill="#888" stroke="#555" stroke-width="2"/>
+            </symbol>
+            <symbol id="age-bronze" viewBox="0 0 100 100">
+                <path d="M25 25 L75 25 L50 85 Z" fill="#cd7f32"/>
+                <circle cx="50" cy="50" r="8" fill="#8b4513"/>
+            </symbol>
+            <symbol id="age-iron" viewBox="0 0 100 100">
+                <path d="M20 20 L80 20 L55 85 L45 85 Z" fill="#777"/>
+                <rect x="42" y="30" width="16" height="50" fill="#444"/>
+            </symbol>
+            <symbol id="age-medieval" viewBox="0 0 100 100">
+                <rect x="20" y="35" width="60" height="55" fill="#555"/>
+                <rect x="35" y="15" width="30" height="20" fill="#333"/>
+                <rect x="35" y="50" width="30" height="40" fill="#222"/>
+            </symbol>
+
+            <!-- Techs -->
+            <symbol id="tech-agriculture" viewBox="0 0 100 100">
+                <path d="M25 90 L50 20 L75 90" fill="none" stroke="#8fbc8f" stroke-width="10" stroke-linecap="round"/>
+                <circle cx="50" cy="60" r="6" fill="#8fbc8f"/>
+            </symbol>
+            <symbol id="tech-domestication" viewBox="0 0 100 100">
+                <ellipse cx="50" cy="50" rx="35" ry="22" fill="none" stroke="#deb887" stroke-width="8"/>
+            </symbol>
+            <symbol id="tech-wheel" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="32" fill="none" stroke="#aaa" stroke-width="8"/>
+                <rect x="46" y="12" width="8" height="76" fill="#666"/>
+                <rect x="12" y="46" width="76" height="8" fill="#666"/>
+            </symbol>
+            <symbol id="tech-metallurgy" viewBox="0 0 100 100">
+                <path d="M20 80 L50 20 L80 80" fill="none" stroke="#b87333" stroke-width="12" stroke-linecap="round"/>
+            </symbol>
+            <symbol id="tech-armor" viewBox="0 0 100 100">
+                <path d="M20 25 Q50 95 80 25" fill="none" stroke="#aaa" stroke-width="10" stroke-linecap="round"/>
+            </symbol>
+        </defs>
+    </svg>
+
+    <!-- Pages -->
+    
+    <!-- Prepare Screen -->
+    <div id="prepare-screen" class="full-page active">
+        <div class="prepare-container interactive">
+            <!-- Left Column: Player List -->
+            <div class="prepare-column left">
+                <div class="column-header">Players</div>
+                <div class="column-content">
+                    <table class="player-list">
+                        <thead>
+                            <tr>
+                                <th style="width: 30px;">#</th>
+                                <th>Name</th>
+                                <th style="width: 100px;">Civ</th>
+                                <th style="width: 60px;">Color</th>
+                                <th style="width: 70px;">Type</th>
+                            </tr>
+                        </thead>
+                        <tbody id="player-list-body">
+                            <!-- JS will populate -->
+                        </tbody>
+                    </table>
+                    <div class="slot-controls">
+                        <button class="slot-btn" onclick="Prepare.addPlayer()">+ Add Player</button>
+                        <button class="slot-btn remove" onclick="Prepare.removePlayer()">- Remove</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Global Settings -->
+            <div class="prepare-column right interactive">
+                <div class="column-header">Game Settings</div>
+                <div class="column-content">
+                    <div class="setting-group">
+                        <label>Map Type</label>
+                        <select class="setting-select" id="setting-map">
+                            <option>Continental</option>
+                            <option>Islands</option>
+                            <option>Highlands</option>
+                            <option>Archipelago</option>
+                        </select>
+                    </div>
+                    <div class="setting-group">
+                        <label>Map Size</label>
+                        <select class="setting-select" id="setting-size">
+                            <option>Small (2 Players)</option>
+                            <option>Medium (4 Players)</option>
+                            <option>Large (8 Players)</option>
+                        </select>
+                    </div>
+                    <div class="setting-group">
+                        <label>Resources</label>
+                        <select class="setting-select" id="setting-resources">
+                            <option>Standard</option>
+                            <option>High</option>
+                            <option>Low</option>
+                            <option>Deathmatch</option>
+                        </select>
+                    </div>
+                    <div class="setting-group">
+                        <label>Difficulty</label>
+                        <select class="setting-select" id="setting-difficulty">
+                            <option>Easy</option>
+                            <option>Normal</option>
+                            <option>Hard</option>
+                            <option>Extreme</option>
+                        </select>
+                    </div>
+                    <div class="setting-group">
+                        <label>Game Speed</label>
+                        <select class="setting-select" id="setting-speed">
+                            <option>Normal</option>
+                            <option>Fast</option>
+                            <option>Slow</option>
+                        </select>
+                    </div>
+                    
+                    <button class="start-btn interactive" onclick="Game.start()">Start Game</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats Screen -->
+    <div id="stats-screen" class="full-page">
+        <div class="stats-header interactive">
+            <div style="font-size:1.4rem; font-weight:bold; color:var(--accent); letter-spacing:1px;">VICTORY</div>
+            <div class="tab-group">
+                <button class="tab-btn active">Overview</button>
+                <button class="tab-btn">Economy</button>
+                <button class="tab-btn">Military</button>
+            </div>
+            <button class="top-menu-btn interactive" onclick="UI.showPage('prepare-screen')">🏠</button>
+        </div>
+        <div class="stats-body interactive">
+            <div class="stats-panel">
+                <div class="chart-title">Scoreboard</div>
+                <table class="stats-table">
+                    <thead><tr><th>Player</th><th>Score</th><th>Pop</th><th>Kills</th></tr></thead>
+                    <tbody>
+                        <tr><td><span style="color:#4a90e2">●</span> You (Babylon)</td><td>1,240</td><td>45/50</td><td>12</td></tr>
+                        <tr><td><span style="color:#e24a4a">●</span> Enemy (Egypt)</td><td>850</td><td>30/50</td><td>5</td></tr>
+                        <tr><td><span style="color:#4ae24a">●</span> Enemy (Japan)</td><td>120</td><td>5/50</td><td>0</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="chart-area">
+                <div class="chart-title">Resource Income (per min)</div>
+                <div class="bar-chart-row">
+                    <div class="bar-label"><span>Wood</span><span>42</span></div>
+                    <div class="bar-track"><div class="bar-fill" style="width: 84%;"></div></div>
+                </div>
+                <div class="bar-chart-row">
+                    <div class="bar-label"><span>Food</span><span>65</span></div>
+                    <div class="bar-track"><div class="bar-fill" style="width: 65%;"></div></div>
+                </div>
+                <div class="bar-chart-row">
+                    <div class="bar-label"><span>Gold</span><span>18</span></div>
+                    <div class="bar-track"><div class="bar-fill" style="width: 18%;"></div></div>
+                </div>
+                <div class="bar-chart-row">
+                    <div class="bar-label"><span>Oil</span><span>0</span></div>
+                    <div class="bar-track"><div class="bar-fill" style="width: 0%;"></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+
+    <!-- Game Menu Modal -->
+    <div id="menu-modal" class="modal interactive">
+        <div class="modal-window" style="width: 380px;">
+            <div class="modal-header">
+                <div class="modal-title">Game Menu</div>
+                <button class="modal-close" onclick="UI.closeModals()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="menu-list">
+                    <div class="menu-item" onclick="Game.resume()"><span>▶️</span> Resume Game</div>
+                    <div class="menu-item" onclick="UI.notify('Game Saved!')"><span>💾</span> Save Game</div>
+                    <div class="menu-item" onclick="UI.notify('Settings Saved')"><span>⚙️</span> Settings</div>
+                    <div class="menu-item" onclick="UI.showPage('stats-screen')"><span>📊</span> View Statistics</div>
+                    <div class="menu-item danger" onclick="UI.showPage('prepare-screen')"><span>🚪</span> Quit to Menu</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Diplomacy Modal -->
+    <div id="diplomacy-modal" class="modal interactive">
+        <div class="modal-window">
+            <div class="modal-header">
+                <div class="modal-title">Diplomacy</div>
+                <button class="modal-close" onclick="UI.closeModals()">×</button>
+            </div>
+            <div class="modal-body">
+                <table class="diplomacy-table">
+                    <thead>
+                        <tr>
+                            <th>Player</th>
+                            <th>Relation</th>
+                            <th>Tribute (Send Resources)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="diplomacy-body">
+                        <!-- JS populated -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tech Tree Modal -->
+    <div id="tech-modal" class="modal interactive">
+        <div class="modal-window">
+            <div class="modal-header">
+                <div class="modal-title">Technology Tree</div>
+                <button class="modal-close" onclick="UI.closeModals()">×</button>
+            </div>
+            <div class="modal-body" id="tech-tree-content">
+                <!-- JS populated -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* --- Data & Config --- */
+        const AGES = ['Stone Age', 'Bronze Age', 'Iron Age', 'Medieval Age'];
+        
+        const CIVS = [
+            { id: 'babylon', name: 'Babylonians', color: '#8B7355' },
+            { id: 'egypt', name: 'Egyptians', color: '#D4AF37' },
+            { id: 'goth', name: 'Goths', color: '#696969' },
+            { id: 'japan', name: 'Japanese', color: '#CC0000' }
+        ];
+
+        const COLORS = ['#4a90e2', '#e24a4a', '#4ae24a', '#e2e24a', '#e24ae2', '#4ae2e2', '#e2984a', '#984ae2'];
+        
+        const TECHS = [
+            { id: 'agri', name: 'Agriculture', era: 0, cost: '50F', icon: '#tech-agriculture', parents: [] },
+            { id: 'dom', name: 'Domestication', era: 0, cost: '100F', icon: '#tech-domestication', parents: ['agri'] },
+            { id: 'wheel', name: 'The Wheel', era: 0, cost: '80W', icon: '#tech-wheel', parents: [] },
+            { id: 'metal', name: 'Metallurgy', era: 1, cost: '200F', icon: '#tech-metallurgy', parents: ['agri'] },
+            { id: 'armor', name: 'Chain Mail', era: 2, cost: '300F', icon: '#tech-armor', parents: ['metal'] }
+        ];
+
+        /* --- State --- */
+        const State = {
+            page: 'prepare-screen',
+            civ: 'babylon',
+            ageIndex: 0,
+            researched: [],
+            paused: false,
+            players: [
+                { id: 1, name: 'You', civ: 'babylon', color: '#4a90e2', type: 'human' },
+                { id: 2, name: 'Enemy 1', civ: 'egypt', color: '#e24a4a', type: 'ai' },
+                { id: 3, name: 'Enemy 2', civ: 'goth', color: '#4ae24a', type: 'ai' }
+            ],
+            diplomacy: {
+                2: { relation: 'neutral', tribute: { food: 0, wood: 0, gold: 0 } }
+            }
+        };
+
+        /* --- UI System --- */
+        const UI = {
+            init: () => {
+                Prepare.renderPlayerList();
+                Diplomatic.renderDiplomacy();
+                
+                // Resource Loop
+                setInterval(() => {
+                    if (State.page === 'game-screen' && !State.paused) {
+                        document.getElementById('res-wood').innerText = parseInt(document.getElementById('res-wood').innerText) + 1;
+                        document.getElementById('res-food').innerText = parseInt(document.getElementById('res-food').innerText) + 2;
+                    }
+                }, 1000);
+                
+                UI.renderTechTree();
+            },
+
+            showPage: (pageId) => {
+                document.querySelectorAll('.full-page').forEach(p => p.classList.remove('active'));
+                document.getElementById(pageId).classList.add('active');
+                State.page = pageId;
+                
+                if (pageId === 'game-screen') {
+                    UI.updateCivDisplay();
+                    UI.notify('Game Started');
+                }
+            },
+
+            updateCivDisplay: () => {
+                const civData = CIVS.find(c => c.id === State.civ);
+                document.getElementById('civ-icon').innerHTML = `<use href="#civ-${State.civ}" />`;
+                document.getElementById('civ-name').innerText = civData.name;
+                document.getElementById('current-age').innerText = AGES[State.ageIndex];
+            },
+
+            openModal: (modalId) => {
+                document.getElementById(modalId).classList.add('active');
+                State.paused = true;
+                if(modalId === 'tech-modal') UI.renderTechTree();
+                if(modalId === 'diplomacy-modal') Diplomatic.renderDiplomacy();
+            },
+
+            closeModals: () => {
+                document.querySelectorAll('.modal').forEach(m => m.classList.remove('active'));
+                if(State.page === 'game-screen') State.paused = false;
+            },
+
+            notify: (msg) => {
+                const area = document.getElementById('notification-area');
+                const t = document.createElement('div');
+                t.className = 'toast';
+                t.innerText = msg;
+                area.appendChild(t);
+                setTimeout(() => t.remove(), 3000);
+            },
+
+            renderTechTree: () => {
+                const container = document.getElementById('tech-tree-content');
+                container.innerHTML = '<div class="tech-tree-container"></div>';
+                const treeContainer = container.firstChild;
+
+                for (let i = 0; i < 3; i++) {
+                    const section = document.createElement('div');
+                    section.className = 'tech-era-section';
+                    section.innerHTML = `<div class="tech-era-header">${AGES[i]} Era</div><div class="tech-row"></div>`;
+                    const row = section.querySelector('.tech-row');
+                    
+                    const eraTechs = TECHS.filter(t => t.era === i);
+                    eraTechs.forEach(tech => {
+                        const node = document.createElement('div');
+                        node.className = 'tech-node';
+                        node.innerHTML = `<svg><use href="${tech.icon}"/></svg><span>${tech.name}</span>`;
+                        
+                        const researched = State.researched.includes(tech.id);
+                        const parentsResearched = tech.parents.every(p => State.researched.includes(p));
+                        const ageUnlocked = State.ageIndex >= tech.era;
+
+                        if (researched) {
+                            node.classList.add('researched');
+                        } else if (!ageUnlocked || !parentsResearched) {
+                            node.classList.add('locked');
+                        } else {
+                            node.classList.add('available');
+                            node.onclick = () => Game.research(tech, node);
+                        }
+                        row.appendChild(node);
+                    });
+                    treeContainer.appendChild(section);
+                }
+            }
+        };
+
+        /* --- Prepare Screen System --- */
+        const Prepare = {
+            renderPlayerList: () => {
+                const tbody = document.getElementById('player-list-body');
+                tbody.innerHTML = '';
+                
+                State.players.forEach((player, index) => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td style="color:#666; font-weight:bold;">${index + 1}</td>
+                        <td><input type="text" class="player-name-input" value="${player.name}" onchange="Prepare.updatePlayer(${index}, 'name', this.value)"></td>
+                        <td>
+                            <select class="player-select" onchange="Prepare.updatePlayer(${index}, 'civ', this.value)">
+                                ${CIVS.map(c => `<option value="${c.id}" ${player.civ === c.id ? 'selected' : ''}>${c.name}</option>`).join('')}
+                            </select>
+                        </td>
+                        <td><input type="color" class="player-color" value="${player.color}" onchange="Prepare.updatePlayer(${index}, 'color', this.value)"></td>
+                        <td>
+                            <select class="player-select" onchange="Prepare.updatePlayer(${index}, 'type', this.value)">
+                                <option value="human" ${player.type === 'human' ? 'selected' : ''}>Human</option>
+                                <option value="ai" ${player.type === 'ai' ? 'selected' : ''}>AI</option>
+                            </select>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            },
+
+            updatePlayer: (index, field, value) => {
+                State.players[index][field] = value;
+                if (field === 'civ') State.civ = value; // Update player civ
+            },
+
+            addPlayer: () => {
+                if (State.players.length < 8) {
+                    const newId = State.players.length + 1;
+                    const colorIdx = (newId - 1) % COLORS.length;
+                    State.players.push({ id: newId, name: `Player ${newId}`, civ: 'babylon', color: COLORS[colorIdx], type: 'ai' });
+                    Prepare.renderPlayerList();
+                }
+            },
+
+            removePlayer: () => {
+                if (State.players.length > 2) {
+                    State.players.pop();
+                    Prepare.renderPlayerList();
+                }
+            }
+        };
+
+        /* --- Diplomacy System --- */
+        const Diplomatic = {
+            renderDiplomacy: () => {
+                const tbody = document.getElementById('diplomacy-body');
+                tbody.innerHTML = '';
+                
+                State.players.filter(p => p.id !== 1).forEach(player => {
+                    const relData = State.diplomacy[player.id] || { relation: 'neutral', tribute: { food: 0, wood: 0, gold: 0 } };
+                    
+                    let relClass = 'relation-neutral';
+                    let relText = 'Neutral';
+                    if(relData.relation === 'friendly') { relClass = 'relation-friendly'; relText = 'Friendly'; }
+                    if(relData.relation === 'hostile') { relClass = 'relation-hostile'; relText = 'Hostile'; }
+
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>
+                            <div class="player-cell">
+                                <div class="player-swatch" style="background:${player.color}"></div>
+                                <span class="player-name">${player.name}</span>
+                            </div>
+                        </td>
+                        <td><span class="relation-badge ${relClass}">${relText}</span></td>
+                        <td>
+                            <div class="tribute-controls">
+                                <button class="tribute-btn" onclick="Diplomatic.sendTribute(${player.id}, 'food')">
+                                    🌾<span class="tribute-count" style="display:${relData.tribute.food ? 'block' : 'none'}">${relData.tribute.food}</span>
+                                </button>
+                                <button class="tribute-btn" onclick="Diplomatic.sendTribute(${player.id}, 'wood')">
+                                    🪵<span class="tribute-count" style="display:${relData.tribute.wood ? 'block' : 'none'}">${relData.tribute.wood}</span>
+                                </button>
+                                <button class="tribute-btn" onclick="Diplomatic.sendTribute(${player.id}, 'gold')">
+                                    🪙<span class="tribute-count" style="display:${relData.tribute.gold ? 'block' : 'none'}">${relData.tribute.gold}</span>
+                                </button>
+                            </div>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            },
+
+            sendTribute: (playerId, type) => {
+                if (!State.diplomacy[playerId]) State.diplomacy[playerId] = { relation: 'neutral', tribute: { food: 0, wood: 0, gold: 0 } };
+                State.diplomacy[playerId].tribute[type] += 100;
+                UI.notify(`Sent 100 ${type} to Player ${playerId}`);
+                Diplomatic.renderDiplomacy();
+            }
+        };
+
+        /* --- Game Logic --- */
+        const Game = {
+            start: () => {
+                UI.showPage('game-screen');
+            },
+
+            resume: () => {
+                UI.closeModals();
+            },
+
+            advanceAge: () => {
+                if (State.ageIndex < AGES.length - 1) {
+                    State.ageIndex++;
+                    UI.updateCivDisplay();
+                    UI.notify(`Advanced to ${AGES[State.ageIndex]}`);
+                } else {
+                    UI.notify("Max Age Reached");
+                }
+            },
+
+            research: (tech, nodeEl) => {
+                UI.notify(`Researching ${tech.name}...`);
+                nodeEl.classList.add('researching');
+                nodeEl.onclick = null;
+                
+                setTimeout(() => {
+                    State.researched.push(tech.id);
+                    nodeEl.classList.remove('researching');
+                    nodeEl.classList.add('researched');
+                    UI.notify(`${tech.name} Completed!`);
+                }, 2000);
+            }
+        };
+
+        // Boot
+        UI.init();
+
+    </script>
+</body>
+</html>

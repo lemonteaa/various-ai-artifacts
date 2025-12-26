@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Age of Empires 3D Prototype (v5 - UI Expansion)</title>
+    <style>
+        :root {
+            --ui-bg: rgba(20, 20, 30, 0.95);
+            --ui-border: #8b7e66;
+            --ui-text: #f0e6d2;
+            --accent: #d4af37;
+            --danger: #ff4444;
+            --accent-hover: #f9d868;
+            --modal-overlay: rgba(0, 0, 0, 0.8);
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1a1a1a;
+            user-select: none;
+        }
+
+        /* --- 3D Canvas Placeholder --- */
+        #game-container {
+            position: absolute;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            z-index: 1;
+            background: radial-gradient(circle at center, #2b3340 0%, #0f1219 100%);
+        }
+        
+        /* Debug text in canvas */
+        #canvas-hint {
+            position: absolute; top: 50%; left: 50%; 
+            transform: translate(-50%, -50%);
+            color: rgba(255,255,255,0.1); font-size: 5rem; font-weight: bold;
+            pointer-events: none; z-index: 0;
+        }
+
+        /* --- UI Overlay Layer --- */
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 10;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        /* Enable pointer events on interactive elements */
+        .interactive { pointer-events: auto; }
+
+        /* Top Resource Bar */
+        #resource-bar {
+            background: var(--ui-bg);
+            border-bottom: 2px solid var(--ui-border);
+            padding: 8px 20px;
+            display: flex;
+            gap: 20px;
+            color: var(--ui-text);
+            font-weight: bold;
+            font-size: 1rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            align-items: center;
+        }
+
+        .res-item { display: flex; align-items: center; gap: 6px; }
+        .res-icon { font-size: 1.2rem; }
+        
+        /* --- New Top Center Area: Civ & Age --- */
+        #civ-status-area {
+            position: absolute;
+            top: 8px; left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            background: rgba(20, 20, 30, 0.8);
+            border: 1px solid var(--ui-border);
+            border-radius: 6px;
+            padding: 4px 15px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        #civ-status-area:hover { background: rgba(40, 40, 55, 0.95); border-color: var(--accent); }
+
+        #civ-icon {
+            width: 36px; height: 36px;
+            fill: var(--ui-text);
+        }
+        #civ-details {
+            display: flex; flex-direction: column;
+        }
+        #civ-name { font-size: 0.8rem; color: var(--accent); font-weight: bold; text-transform: uppercase; }
+        #age-display { font-size: 0.75rem; color: #aaa; display: flex; align-items: center; gap: 8px; }
+        
+        .advance-age-btn {
+            background: linear-gradient(to bottom, #4a4a5e, #2a2a3e);
+            border: 1px solid var(--ui-border);
+            color: var(--ui-text);
+            font-size: 0.7rem;
+            padding: 2px 6px;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .advance-age-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .advance-age-btn:disabled { opacity: 0.4; cursor: not-allowed; border-color: transparent; color: #666; }
+
+        /* --- New Top Right: Menu --- */
+        #top-menu {
+            margin-left: auto;
+            display: flex;
+            gap: 10px;
+        }
+        .top-menu-btn {
+            background: transparent;
+            border: 1px solid transparent;
+            color: var(--ui-text);
+            font-size: 1.2rem;
+            width: 36px; height: 36px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            transition: background 0.2s;
+        }
+        .top-menu-btn:hover { background: rgba(255,255,255,0.1); border-color: var(--ui-border); }
+
+        /* --- Bottom Control Panel --- */
+        #control-panel {
+            background: var(--ui-bg);
+            border-top: 3px solid var(--ui-border);
+            padding: 15px;
+            height: 140px;
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        #selection-info {
+            width: 220px;
+            border-right: 1px solid var(--ui-border);
+            padding-right: 15px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        #selection-name { font-size: 1.3rem; color: var(--accent); font-weight: bold; margin-bottom: 5px; }
+        #selection-stats { font-size: 0.9rem; color: #ccc; }
+        #queue-info { font-size: 0.8rem; color: #aaa; margin-top: 5px; }
+
+        #actions-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 8px;
+            flex-grow: 1;
+        }
+
+        .action-btn {
+            background: linear-gradient(to bottom, #4a4a5e, #2a2a3e);
+            border: 1px solid var(--ui-border);
+            color: var(--ui-text);
+            padding: 8px;
+            cursor: pointer;
+            transition: all 0.1s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            position: relative;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.2);
+            border-radius: 4px;
+        }
+
+        .action-btn:hover { background: #505070; border-color: var(--accent); transform: translateY(-1px); }
+        .action-btn:active { transform: translateY(1px); }
+        .action-btn:disabled { opacity: 0.4; cursor: not-allowed; filter: grayscale(1); }
+        
+        .cost-tooltip { font-size: 0.7rem; color: #aaa; margin-top: 2px; }
+        .hotkey { position: absolute; top: 2px; right: 4px; font-size: 0.7rem; color: #ffd700; font-weight: bold; }
+
+        /* Selection Box */
+        #selection-box {
+            position: absolute;
+            border: 1px solid #00ff00;
+            background: rgba(0, 255, 0, 0.1);
+            pointer-events: none;
+            display: none;
+            z-index: 5;
+        }
+
+        /* Health Bar Overlay */
+        #health-bar-container {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; overflow: hidden; z-index: 4;
+        }
+
+        .hp-bar {
+            position: absolute;
+            width: 40px; height: 5px; background: #000;
+            transform: translate(-50%, -50%);
+            display: none; border: 1px solid rgba(0,0,0,0.5);
+            border-radius: 2px;
+        }
+        .hp-fill {
+            height: 100%; background: #00ff00; width: 100%;
+            transition: width 0.2s, background-color 0.2s;
+        }
+
+        /* Notifications */
+        #notification-area {
+            position: absolute; top: 80px; left: 50%;
+            transform: translateX(-50%);
+            display: flex; flex-direction: column; gap: 5px; align-items: center;
+        }
+        .toast {
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 6px 14px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            border-left: 4px solid var(--accent);
+            animation: fadeOut 3s forwards;
+        }
+        @keyframes fadeOut { 0% { opacity: 1; transform: translateY(0); } 80% { opacity: 1; } 100% { opacity: 0; transform: translateY(-20px); } }
+
+        /* --- Full Screen Pages (Prepare/Stats) --- */
+        .full-page {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #1a1a1a;
+            z-index: 50;
+            display: none;
+            flex-direction: column;
+        }
+        .full-page.active { display: flex; }
+        
+        /* Prepare Screen */
+        #prepare-screen { background: radial-gradient(circle at center, #2b3340 0%, #111 100%); }
+        .prepare-content {
+            flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--ui-text);
+        }
+        .prepare-card {
+            background: var(--ui-bg);
+            border: 2px solid var(--ui-border);
+            padding: 30px; width: 600px;
+            box-shadow: 0 0 30px rgba(0,0,0,0.8);
+        }
+        .prepare-card h2 { color: var(--accent); text-align: center; margin-top: 0; text-transform: uppercase; letter-spacing: 2px; }
+        .form-row { margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
+        .form-row label { color: #aaa; }
+        .form-row select, .form-row input { background: #111; border: 1px solid var(--ui-border); color: white; padding: 5px; border-radius: 3px; width: 60%; }
+        .start-btn {
+            width: 100%; padding: 15px; margin-top: 20px;
+            background: var(--accent); border: none; color: #000; font-weight: bold; font-size: 1.2rem;
+            text-transform: uppercase; cursor: pointer; border-radius: 4px;
+        }
+        .start-btn:hover { background: var(--accent-hover); }
+
+        /* Stats Screen */
+        #stats-screen { background: #151515; }
+        .stats-header { padding: 20px; border-bottom: 1px solid var(--ui-border); display: flex; justify-content: space-between; align-items: center; background: var(--ui-bg); }
+        .tab-group { display: flex; gap: 10px; }
+        .tab { background: transparent; border: 1px solid var(--ui-border); color: #aaa; padding: 8px 16px; cursor: pointer; border-radius: 4px; }
+        .tab.active { background: var(--ui-border); color: white; border-color: var(--ui-border-highlight); }
+        
+        .stats-body { flex-grow: 1; padding: 40px; display: flex; gap: 40px; overflow: hidden; }
+        .stats-panel { background: #1f1f1f; border: 1px solid #333; padding: 20px; flex: 1; display: flex; flex-direction: column; }
+        .stats-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        .stats-table th { text-align: left; color: var(--accent); border-bottom: 1px solid #444; padding: 8px; }
+        .stats-table td { padding: 8px; border-bottom: 1px solid #333; color: #ccc; }
+        
+        .chart-panel { flex: 1; display: flex; flex-direction: column; }
+        .bar-chart-row { margin-bottom: 15px; }
+        .bar-label { font-size: 0.8rem; color: #aaa; margin-bottom: 4px; }
+        .bar-track { height: 12px; background: #333; border-radius: 6px; overflow: hidden; }
+        .bar-fill { height: 100%; background: var(--accent); width: 0%; transition: width 1s ease-out; }
+        
+        /* --- Modals --- */
+        .modal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--modal-overlay);
+            z-index: 100;
+            display: none;
+            align-items: center; justify-content: center;
+            backdrop-filter: blur(2px);
+        }
+        .modal.active { display: flex; }
+        
+        .modal-window {
+            background: var(--ui-bg);
+            border: 2px solid var(--ui-border);
+            box-shadow: 0 0 40px rgba(0,0,0,0.9);
+            width: 700px; max-height: 80vh;
+            display: flex; flex-direction: column;
+            animation: slideDown 0.3s ease-out;
+        }
+        @keyframes slideDown { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        
+        .modal-header { padding: 15px 20px; border-bottom: 1px solid var(--ui-border); display: flex; justify-content: space-between; align-items: center; }
+        .modal-title { font-size: 1.2rem; color: var(--accent); font-weight: bold; }
+        .modal-close { background: none; border: none; color: white; font-size: 1.5rem; cursor: pointer; line-height: 1; }
+        
+        .modal-body { padding: 20px; overflow-y: auto; }
+        
+        /* Game Menu List */
+        .menu-list { display: flex; flex-direction: column; gap: 10px; }
+        .menu-item {
+            padding: 15px; border: 1px solid var(--ui-border); background: rgba(255,255,255,0.05);
+            color: var(--ui-text); text-align: left; font-size: 1rem; cursor: pointer; transition: all 0.2s;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .menu-item:hover { background: rgba(255,255,255,0.1); border-color: var(--ui-border-highlight); padding-left: 20px; }
+        .menu-item.danger:hover { background: var(--danger); border-color: var(--danger); }
+
+        /* --- Tech Tree Visuals --- */
+        .tech-tree-container {
+            display: flex; flex-direction: column; align-items: center; gap: 30px; padding-bottom: 30px;
+        }
+        .tech-era-label {
+            font-size: 0.9rem; color: #666; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px; border-bottom: 1px solid #333; width: 100%; padding-bottom: 5px;
+        }
+        .tech-row {
+            display: flex; gap: 40px; position: relative;
+        }
+        .tech-node {
+            width: 80px; height: 80px;
+            background: #2a2a35; border: 1px solid var(--ui-border);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            border-radius: 4px; position: relative; cursor: pointer; transition: all 0.2s;
+        }
+        .tech-node svg { width: 32px; height: 32px; margin-bottom: 4px; fill: #ccc; pointer-events: none; }
+        .tech-node span { font-size: 0.7rem; text-align: center; pointer-events: none; }
+        .tech-cost { font-size: 0.6rem; color: var(--accent); margin-top: 2px; pointer-events: none; }
+
+        /* Tech States */
+        .tech-node.locked { opacity: 0.4; filter: grayscale(1); cursor: not-allowed; }
+        .tech-node.available:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
+        .tech-node.researched { border-color: var(--success); background: rgba(68, 255, 68, 0.1); }
+        .tech-node.researched svg { fill: var(--success); }
+        .tech-node.researching { pointer-events: none; }
+        .tech-node.researching::after {
+            content: ''; position: absolute; bottom: 0; left: 0; height: 3px; background: var(--accent);
+            width: 0%; animation: loadBar 2s linear forwards;
+        }
+        @keyframes loadBar { from { width: 0%; } to { width: 100%; } }
+
+        /* Connectors (Simple Lines) */
+        .connector {
+            position: absolute; background: #444; z-index: -1;
+        }
+        /* SVG Connector Lines */
+        .tech-svg-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+        .tech-line { stroke: #444; stroke-width: 2; fill: none; transition: stroke 0.3s; }
+        .tech-line.active { stroke: var(--accent); }
+
+    </style>
+</head>
+<body>
+
+    <!-- 3D Canvas -->
+    <div id="game-container">
+        <div id="canvas-hint">EMPIRE 3D</div>
+    </div>
+    <div id="selection-box"></div>
+    <div id="health-bar-container"></div>
+
+    <!-- UI Overlay -->
+    <div id="ui-layer">
+        <!-- Top Bar -->
+        <div id="resource-bar" class="interactive">
+            <!-- Resources (Emojis preserved) -->
+            <div class="res-item"><span class="res-icon">🪵</span> <span id="res-wood">200</span></div>
+            <div class="res-item"><span class="res-icon">🌾</span> <span id="res-food">200</span></div>
+            <div class="res-item"><span class="res-icon">🪙</span> <span id="res-gold">100</span></div>
+            <div class="res-item"><span class="res-icon">🛢️</span> <span id="res-oil">0</span></div>
+            <div class="res-item" style="margin-left:auto; color: #aaa; font-size: 0.9rem;">
+                Pop: <span id="res-pop">0</span>/<span id="res-max-pop">10</span>
+            </div>
+
+            <!-- Center: Civ & Age (New Feature) -->
+            <div id="civ-status-area" class="interactive" onclick="UI.openModal('tech-modal')">
+                <svg id="civ-icon"><use href="#civ-babylon"/></svg>
+                <div id="civ-details">
+                    <div id="civ-name">Babylonians</div>
+                    <div id="age-display">
+                        <span id="current-age">Stone Age</span>
+                        <button class="advance-age-btn" id="btn-advance-age" onclick="event.stopPropagation(); Game.advanceAge()">Advance Age</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Menu (New Feature) -->
+            <div id="top-menu">
+                <button class="top-menu-btn interactive" onclick="UI.openModal('menu-modal')" title="Game Menu">⚙️</button>
+            </div>
+        </div>
+
+        <!-- Notifications -->
+        <div id="notification-area"></div>
+
+        <!-- Bottom Panel -->
+        <div id="control-panel" class="interactive">
+            <div id="selection-info">
+                <div id="selection-name">Nothing Selected</div>
+                <div id="selection-stats">-</div>
+                <div id="queue-info"></div>
+            </div>
+            <div id="actions-grid"></div>
+        </div>
+    </div>
+
+    <!-- SVG Sprite Definitions -->
+    <svg width="0" height="0" style="position:absolute">
+        <defs>
+            <!-- Civs (Low Poly Style) -->
+            <symbol id="civ-babylon" viewBox="0 0 100 100">
+                <polygon points="20,40 80,40 80,90 20,90" fill="#c2b280"/>
+                <polygon points="20,40 40,10 60,40" fill="#e0d5a0"/>
+                <rect x="35" y="55" width="30" height="35" fill="#4a4036"/>
+            </symbol>
+            <symbol id="civ-egypt" viewBox="0 0 100 100">
+                <polygon points="50,10 90,90 10,90" fill="#d4af37"/>
+                <circle cx="50" cy="60" r="10" fill="#000" opacity="0.3"/>
+            </symbol>
+            <symbol id="civ-goth" viewBox="0 0 100 100">
+                <path d="M50 10 L10 90 L90 90 Z" fill="#555"/>
+                <path d="M50 10 L50 90" stroke="#333" stroke-width="5"/>
+            </symbol>
+            <symbol id="civ-japan" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="40" fill="#ff0000"/>
+                <circle cx="50" cy="50" r="25" fill="#fff"/>
+            </symbol>
+
+            <!-- Ages -->
+            <symbol id="age-stone" viewBox="0 0 100 100">
+                <polygon points="30,30 70,30 80,70 20,70" fill="#777" stroke="#555" stroke-width="2"/>
+            </symbol>
+            <symbol id="age-bronze" viewBox="0 0 100 100">
+                <path d="M20 20 L80 80 L20 80 Z" fill="#cd7f32"/>
+            </symbol>
+            <symbol id="age-iron" viewBox="0 0 100 100">
+                <path d="M20 20 L80 20 L50 90 Z" fill="#888"/>
+                <rect x="45" y="30" width="10" height="50" fill="#555"/>
+            </symbol>
+            <symbol id="age-medieval" viewBox="0 0 100 100">
+                <rect x="20" y="30" width="60" height="60" fill="#555"/>
+                <rect x="35" y="10" width="30" height="20" fill="#333"/>
+                <rect x="35" y="50" width="30" height="40" fill="#222"/>
+            </symbol>
+
+            <!-- Techs -->
+            <symbol id="tech-agriculture" viewBox="0 0 100 100">
+                <path d="M20 90 L50 10 L80 90" fill="none" stroke="#8fbc8f" stroke-width="8"/>
+                <circle cx="50" cy="60" r="5" fill="#8fbc8f"/>
+            </symbol>
+            <symbol id="tech-domestication" viewBox="0 0 100 100">
+                <ellipse cx="50" cy="50" rx="30" ry="20" fill="none" stroke="#deb887" stroke-width="8"/>
+            </symbol>
+            <symbol id="tech-wheel" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="30" fill="none" stroke="#aaa" stroke-width="8"/>
+                <rect x="45" y="10" width="10" height="80" fill="#888"/>
+                <rect x="10" y="45" width="80" height="10" fill="#888"/>
+            </symbol>
+            <symbol id="tech-metallurgy" viewBox="0 0 100 100">
+                <path d="M20 80 L50 20 L80 80" fill="none" stroke="#b87333" stroke-width="10"/>
+            </symbol>
+            <symbol id="tech-armor" viewBox="0 0 100 100">
+                <path d="M20 20 Q50 100 80 20" fill="none" stroke="#aaa" stroke-width="10"/>
+            </symbol>
+        </defs>
+    </svg>
+
+    <!-- Pages -->
+    
+    <!-- Prepare Page -->
+    <div id="prepare-screen" class="full-page active">
+        <div class="prepare-content">
+            <div class="prepare-card interactive">
+                <h2>New Game</h2>
+                <div class="form-row">
+                    <label>Civilization</label>
+                    <select id="setup-civ">
+                        <option value="babylon">Babylonians</option>
+                        <option value="egypt">Egyptians</option>
+                        <option value="goth">Goths</option>
+                        <option value="japan">Japanese</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <label>Opponents</label>
+                    <select id="setup-opponents">
+                        <option value="1">1 vs 1</option>
+                        <option value="2">2 vs 2</option>
+                        <option value="3">Free for All</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <label>Map Size</label>
+                    <select>
+                        <option>Small</option>
+                        <option>Medium</option>
+                        <option>Large</option>
+                    </select>
+                </div>
+                <button class="start-btn interactive" onclick="Game.start()">Start Game</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats Page -->
+    <div id="stats-screen" class="full-page">
+        <div class="stats-header interactive">
+            <div style="font-size:1.5rem; font-weight:bold; color:var(--accent);">VICTORY</div>
+            <div class="tab-group">
+                <button class="tab active">Overview</button>
+                <button class="tab">Economy</button>
+                <button class="tab">Military</button>
+            </div>
+            <button class="top-menu-btn interactive" onclick="UI.showPage('prepare-screen')">🏠</button>
+        </div>
+        <div class="stats-body interactive">
+            <div class="stats-panel">
+                <h3>Scoreboard</h3>
+                <table class="stats-table">
+                    <thead><tr><th>Player</th><th>Score</th><th>Pop</th></tr></thead>
+                    <tbody>
+                        <tr><td>You (Babylon)</td><td>1,240</td><td>45/50</td></tr>
+                        <tr><td>Enemy (Egypt)</td><td>850</td><td>30/50</td></tr>
+                        <tr><td>Enemy (Japan)</td><td>120</td><td>5/50</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="chart-panel">
+                <h3>Resource Income</h3>
+                <div class="bar-chart-row">
+                    <div class="bar-label">Wood (40/min)</div>
+                    <div class="bar-track"><div class="bar-fill" style="width: 80%;"></div></div>
+                </div>
+                <div class="bar-chart-row">
+                    <div class="bar-label">Food (65/min)</div>
+                    <div class="bar-track"><div class="bar-fill" style="width: 65%;"></div></div>
+                </div>
+                <div class="bar-chart-row">
+                    <div class="bar-label">Gold (10/min)</div>
+                    <div class="bar-track"><div class="bar-fill" style="width: 20%;"></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+
+    <!-- Game Menu Modal -->
+    <div id="menu-modal" class="modal interactive">
+        <div class="modal-window" style="width: 400px;">
+            <div class="modal-header">
+                <div class="modal-title">Game Menu</div>
+                <button class="modal-close" onclick="UI.closeModals()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="menu-list">
+                    <div class="menu-item" onclick="Game.resume()"><span>▶️</span> Resume</div>
+                    <div class="menu-item" onclick="UI.notify('Game Saved!')"><span>💾</span> Save Game</div>
+                    <div class="menu-item" onclick="UI.notify('Settings Open')"><span>⚙️</span> Settings</div>
+                    <div class="menu-item" onclick="UI.showPage('stats-screen')"><span>📊</span> View Stats</div>
+                    <div class="menu-item danger" onclick="UI.showPage('prepare-screen')"><span>🚪</span> Quit to Menu</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tech Tree Modal -->
+    <div id="tech-modal" class="modal interactive">
+        <div class="modal-window">
+            <div class="modal-header">
+                <div class="modal-title">Technology Tree</div>
+                <button class="modal-close" onclick="UI.closeModals()">×</button>
+            </div>
+            <div class="modal-body" id="tech-tree-content">
+                <!-- JS will populate this -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* --- Data & Config --- */
+        const AGES = ['Stone Age', 'Bronze Age', 'Iron Age', 'Medieval Age'];
+        
+        // Tech Tree Data (Family Tree Structure)
+        const TECHS = [
+            { id: 'agri', name: 'Agriculture', era: 0, cost: '50F', icon: '#tech-agriculture', parents: [] },
+            { id: 'dom', name: 'Domestication', era: 0, cost: '100F', icon: '#tech-domestication', parents: ['agri'] },
+            { id: 'wheel', name: 'The Wheel', era: 0, cost: '80W', icon: '#tech-wheel', parents: [] },
+            
+            { id: 'metal', name: 'Metallurgy', era: 1, cost: '200F', icon: '#tech-metallurgy', parents: ['agri'] },
+            { id: 'armor', name: 'Chain Mail', era: 2, cost: '300F', icon: '#tech-armor', parents: ['metal'] }
+        ];
+
+        /* --- State --- */
+        const State = {
+            page: 'prepare-screen',
+            civ: 'babylon',
+            ageIndex: 0,
+            researched: [],
+            resources: { wood: 200, food: 200, gold: 100 },
+            paused: false
+        };
+
+        /* --- UI System --- */
+        const UI = {
+            init: () => {
+                // Resource Loop
+                setInterval(() => {
+                    if (State.page === 'game-screen' && !State.paused) {
+                        State.resources.food += 2;
+                        State.resources.wood += 1;
+                        UI.updateResources();
+                    }
+                }, 1000);
+                UI.renderTechTree();
+            },
+
+            updateResources: () => {
+                document.getElementById('res-wood').innerText = State.resources.wood;
+                document.getElementById('res-food').innerText = State.resources.food;
+                document.getElementById('res-gold').innerText = State.resources.gold;
+            },
+
+            showPage: (pageId) => {
+                document.querySelectorAll('.full-page').forEach(p => p.classList.remove('active'));
+                document.getElementById(pageId).classList.add('active');
+                State.page = pageId;
+
+                if (pageId === 'game-screen') {
+                    UI.updateCivDisplay();
+                    UI.notify('Game Started');
+                }
+            },
+
+            updateCivDisplay: () => {
+                const civSelect = document.getElementById('setup-civ');
+                const civ = State.civ; // or civSelect.value if in menu
+                
+                document.getElementById('civ-icon').innerHTML = `<use href="#civ-${civ}" />`;
+                document.getElementById('civ-name').innerText = civ.toUpperCase() + 'S';
+                document.getElementById('current-age').innerText = AGES[State.ageIndex];
+            },
+
+            openModal: (modalId) => {
+                document.getElementById(modalId).classList.add('active');
+                State.paused = true;
+                if(modalId === 'tech-modal') UI.renderTechTree();
+            },
+
+            closeModals: () => {
+                document.querySelectorAll('.modal').forEach(m => m.classList.remove('active'));
+                State.paused = false;
+            },
+
+            notify: (msg) => {
+                const area = document.getElementById('notification-area');
+                const t = document.createElement('div');
+                t.className = 'toast';
+                t.innerText = msg;
+                area.appendChild(t);
+                setTimeout(() => t.remove(), 3000);
+            },
+
+            // Tech Tree Renderer (Hierarchical)
+            renderTechTree: () => {
+                const container = document.getElementById('tech-tree-content');
+                container.innerHTML = '<div class="tech-tree-container"></div>';
+                const treeContainer = container.firstChild;
+
+                // Group by Era
+                [0, 1, 2].forEach(eraIdx => {
+                    const eraRow = document.createElement('div');
+                    eraRow.innerHTML = `<div class="tech-era-label">${AGES[eraIdx]} Era</div><div class="tech-row"></div>`;
+                    const techRowDiv = eraRow.querySelector('.tech-row');
+                    
+                    const eraTechs = TECHS.filter(t => t.era === eraIdx);
+                    
+                    eraTechs.forEach(tech => {
+                        const node = document.createElement('div');
+                        node.className = 'tech-node';
+                        node.innerHTML = `
+                            <svg><use href="${tech.icon}"/></svg>
+                            <span>${tech.name}</span>
+                            <div class="tech-cost">${tech.cost}</div>
+                        `;
+
+                        // Logic
+                        const researched = State.researched.includes(tech.id);
+                        const parentsResearched = tech.parents.every(p => State.researched.includes(p));
+                        const ageUnlocked = State.ageIndex >= tech.era;
+
+                        if (researched) {
+                            node.classList.add('researched');
+                        } else if (!ageUnlocked) {
+                            node.classList.add('locked');
+                        } else if (!parentsResearched) {
+                            node.classList.add('locked');
+                        } else {
+                            node.classList.add('available');
+                            node.onclick = () => Game.research(tech, node);
+                        }
+
+                        techRowDiv.appendChild(node);
+                    });
+                    treeContainer.appendChild(eraRow);
+                });
+            }
+        };
+
+        /* --- Game Logic --- */
+        const Game = {
+            start: () => {
+                const civ = document.getElementById('setup-civ').value;
+                State.civ = civ;
+                State.page = 'game-screen';
+                UI.showPage('game-screen');
+                UI.updateResources();
+            },
+
+            resume: () => {
+                UI.closeModals();
+            },
+
+            advanceAge: () => {
+                if (State.ageIndex < AGES.length - 1) {
+                    State.ageIndex++;
+                    UI.updateCivDisplay();
+                    UI.notify(`Advanced to ${AGES[State.ageIndex]}`);
+                } else {
+                    UI.notify("Max Age Reached");
+                }
+            },
+
+            research: (tech, nodeEl) => {
+                UI.notify(`Researching ${tech.name}...`);
+                nodeEl.classList.add('researching');
+                nodeEl.onclick = null; // Disable double click
+                
+                setTimeout(() => {
+                    State.researched.push(tech.id);
+                    nodeEl.classList.remove('researching');
+                    nodeEl.classList.add('researched');
+                    UI.notify(`${tech.name} Completed!`);
+                }, 2000); // 2 sec mock research
+            }
+        };
+
+        // Boot
+        UI.init();
+
+    </script>
+</body>
+</html>
