@@ -1,0 +1,9 @@
+Not bad, playable after one minor fix: the CONFIG.ENTITIES map, should be TOWNCENTER. The naming here **cannot**
+ be arbitrary because it is relied on to map to the constant string (still hardcoded btw) elsewhere in the codebase. So my next ask is, please identify all the places that uses those hardcoded string 'Villager' for example, and replace that string with "supply from the central config", so eg CONFIG.ENTITIES.VILLAGER.type whose value eval to 'Villager'. In general, you may want to also consider how to map backward (so bidirectional). Also there seems to be a regression where pressing '.' no longer select all idle villagers. (with a call to notify("No idle villagers") if all villagers occupied)
+
+After that, I want you to add some minor features ( compared to what is in phase 2 of our dev roadmap anyway):
+- notify when pop cap reached, flash the pop limit display in the UI slowly until pop cap has free again
+- improved low level AI (soldier: attack the attacking unit if attacked, even if not idle)
+- show gather point flag (make a low poly 3D model of flag) (show it upon selecting a building, hide it upon deselecting. Should also show a dashed white line from the building to the gather point on the ground)
+- able to pause game (implement a function that can be called to pause/unpause, for this iteration just provide a UI button to trigger this - we will integrate it differently in phase 2 of dev but not now so this is just a preparation)
+- stop game clock and display win/lose if one side have lost all units and buildings

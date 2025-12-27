@@ -1,0 +1,1961 @@
+ 
+
+        Analyze the User's Feedback and Requests: 
+             
+
+            Bug Fix 1: CONFIG.ENTITIES keys need to match hardcoded strings exactly (e.g., TOWNCENTER vs TOWN_CENTER). The user specifically mentioned TOWNCENTER. I need to check the code. I see I used TOWN_CENTER in the AssetFactory switch case but TOWNCENTER in CONFIG.ENTITIES. Wait, looking at the provided code in previous turn: 
+                 CONFIG.ENTITIES has keys: VILLAGER, SOLDIER, TOWN_CENTER, HOUSE, BARRACKS.
+                 User said: "CONFIG.ENTITIES map, should be TOWNCENTER".
+                 Let's look at AssetFactory.create: case 'TownCenter': ...
+                 Let's look at where it's accessed: CONFIG.ENTITIES[type.toUpperCase()].time.
+                 If type is 'TownCenter', type.toUpperCase() is 'TOWNCENTER'.
+                 So, the user is correct: the Key in CONFIG.ENTITIES must be TOWNCENTER to match 'TownCenter'.toUpperCase().
+                 
+             
+
+            Refactoring Task: Replace hardcoded strings (e.g., 'Villager') with references to CONFIG.ENTITIES. 
+                 Example: if (e.type === 'Villager') -> if (e.type === CONFIG.ENTITIES.VILLAGER.type).
+                 I need to scan the code for all type === 'String' checks and replace them.
+                 
+             
+
+            Bug Fix 2: Regression of the '.' (period) key selecting idle villagers. 
+                 I likely removed the keydown handler for '.' during the cleanup.
+                 Need to add it back: if (k === '.') selectAllIdleVillagers();
+                 Also ensure notify("No idle villagers") exists in that logic.
+                 
+             
+
+            New Feature 1: Notify and Flash UI on Pop Cap. 
+                 Trigger: pop >= max.
+                 Visual: CSS animation or JS timer toggling a class on #res-max-pop.
+                 Logic: In updateUI (or specific check), if state.playerPop >= state.playerMaxPop, add a "warning" class. Remove it when pop < max.
+                 
+             
+
+            New Feature 2: Improved Low Level AI (Soldier Retaliation). 
+                 Current: Soldiers only attack if IDLE and enemy in range.
+                 New: If a soldier takes damage (in takeDamage), check if the attacker is valid. Switch state to ATTACK targeting the attacker.
+                 Need to pass attacker info to takeDamage? Or rely on lastAggressor?
+                 Simple approach: Add lastAggressor to Entity. When takeDamage(amount, attacker) is called, set this.lastAggressor = attacker. In update, if lastAggressor exists, switch to ATTACK.
+                 
+             
+
+            New Feature 3: Gather Point Visualization (Flag + Line). 
+                 3D Model: Simple flag pole + cloth.
+                 Logic:
+                     Building gains property gatherPointPos (already exists).
+                     On Select (Building): Create flag mesh at gatherPointPos. Create Line from Building to Point.
+                     On Deselect/Update: Hide/Remove flag and line.
+                     If no gatherPointPos, don't show.
+                     
+                 
+             
+
+            New Feature 4: Pause Game. 
+                 State: state.isPaused.
+                 UI Button: A new button in the resource bar or top corner.
+                 Logic: In animate(), if isPaused, skip dt updates (or just don't call entity updates). Stop clock.getDelta()? No, just don't use it.
+                 Visual: Overlay text "PAUSED".
+                 
+             
+
+            New Feature 5: Win/Lose Condition. 
+                 Check: Do I have any entities left? (Units or Buildings).
+                 Logic: In animate loop (or specific interval), check counts.
+                 If playerEntities.length === 0 -> Lose.
+                 If enemyEntities.length === 0 -> Win.
+                 Stop game loop (or pause). Show big overlay.
+                 
+              
+
+        Implementation Plan: 
+             
+
+            Step 1: Config & Hardcoded Strings: 
+                 Fix CONFIG.ENTITIES keys to match .toUpperCase() of types.
+                 TOWN_CENTER -> TOWNCENTER.
+                 TOWNCENTER type name in class needs to match exactly or handle mapping. Let's standardise. AssetFactory uses 'TownCenter'. So Key is TOWNCENTER.
+                 Create helpers or just replace usage.
+                 Replace e.type === 'Villager' with e.type === CONFIG.ENTITIES.VILLAGER.type.
+                 
+             
+
+            Step 2: Restore Idle Select: 
+                 Add selectAllIdleVillagers function (ensure it exists, I might have deleted it).
+                 Bind '.' key in keydown.
+                 
+             
+
+            Step 3: Pop Cap Warning: 
+                 CSS: .pop-warning { color: #ff4444; animation: flash 1s infinite; }
+                 JS: updateUI checks cap, toggles class on res-max-pop.
+                 
+             
+
+            Step 4: Soldier Retaliation: 
+                 Modify Entity.takeDamage(amount, attacker). (Note: currently takeDamage only takes amount. I need to find where it's called and pass the source unit).
+                 Call sites: Soldier attacks Unit/Entity.
+                 In takeDamage, if this instanceof Unit, this.state = 'ATTACK'; this.targetEntity = attacker;.
+                 
+             
+
+            Step 5: Gather Point Visuals: 
+                 Asset: createFlag().
+                 Building class: updateVisuals(). If selected and gatherPointPos, show flag/line.
+                 Line: THREE.Line with BufferGeometry. Update positions in animate or update.
+                 
+             
+
+            Step 6: Pause/Win/Lose: 
+                 pauseGame() function.
+                 Button in HTML.
+                 End Game Logic in animate.
+                 
+              
+
+        Drafting Code Changes: 
+             
+
+            Config Fix: 
+            javascript
+             
+              
+
+        CONFIG.ENTITIES = {
+            VILLAGER: { type: 'Villager', ... },
+            TOWNCENTER: { type: 'TownCenter', ... }, // Changed from TOWN_CENTER
+            // ...
+        }
+         
+         
+         
+         
+
+        Refactoring Strings: 
+             Instead of replacing every single string immediately which might be brittle if I miss one, I'll prioritize the explicit equality checks.
+             if (this.type === 'Villager') -> if (this.type === CONFIG.ENTITIES.VILLAGER.type)
+             This creates a dependency where CONFIG must be defined before usage (it is at the top).
+             
+         
+
+        Retaliation: 
+             Current takeDamage(amount).
+             Change to takeDamage(amount, source = null).
+             Update Unit.update attack logic: this.targetEntity.takeDamage(this.attackDamage, this);
+             
+         
+
+        Gather Point Flag: 
+             Need to store flagMesh and lineMesh on the Building instance.
+             When selected is true: create/add to scene.
+             When selected is false: remove/hide.
+             Actually, better to just toggle visibility or add/remove on setSelected.
+             
+         
+
+        Win/Lose: 
+             Run check every second, not every frame.
+             
+          
+
+    Refining the Code (Self-Correction during drafting): 
+         Flag Asset: Low poly flag is just a cylinder and a small plane.
+         Pause: Just return in animate if paused. state.isPaused = !state.isPaused.
+         Pop Flash: Simple CSS class toggle on the span element.
+          
+
+    Addressing specific user constraints: 
+         "supply from the central config".
+         "bidirectional". If I use CONFIG.ENTITIES.VILLAGER.type, it gives me 'Villager'. That's enough for equality checks.
+         "regression '.'". I need to make sure selectAllIdleVillagers actually iterates state.entities.
+          
+
+    Final Code Assembly: 
+         Merge previous V6 logic with these changes.
+         Ensure AssetFactory matches new Keys (e.g. case 'TownCenter': matches TOWNCENTER).
+          
+
+(Self-Correction on Bidirectional Mapping):
+The user asked for "bidirectional".
+If I have an instance type string, how do I get the config?
+CONFIG.ENTITIES[type.toUpperCase()].
+So, const stats = CONFIG.ENTITIES[type.toUpperCase()] || default;
+This covers the string-to-config lookup.
+The config-to-string lookup is CONFIG.ENTITIES.VILLAGER.type. 
+
+Let's write the code. 
+
+CSS Additions: 
+css
+ 
+  
+.pop-warning { color: #ff4444; animation: pulse 1s infinite; }
+@keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+#pause-btn { ... }
+#game-over-screen { ... }
+ 
+ 
+ 
+
+Logic Changes: 
+
+    takeDamage(amount, attacker) 
+    Building.setSelected(bool) -> handles flag/line rendering. 
+    updateUI -> handles pop warning. 
+    animate -> handles pause and win/loss check. 
+
+Let's go. (Proceeds to generate HTML). 
+
+
+
+----
+
+
+Here is the updated codebase (v6.1).
+
+### Change Log & Fixes
+1.  **Config & String Standardization**:
+    *   Fixed `CONFIG.ENTITIES` keys to strictly match `type.toUpperCase()` (e.g., `TOWNCENTER` instead of `TOWN_CENTER`).
+    *   Replaced hardcoded string checks (e.g., `type === 'Villager'`) with centralized config references (`CONFIG.ENTITIES.VILLAGER.type`).
+2.  **Bug Fix**: Restored the **'.'** hotkey functionality to select idle villagers.
+3.  **Pop Cap Warning**: Added a visual flash (red pulse) to the population counter when the limit is reached.
+4.  **Soldier AI**: Soldiers now retaliate immediately if attacked, switching to `ATTACK` state even if they were doing something else.
+5.  **Gather Point Visuals**:
+    *   Added a 3D Flag model that appears when a building with a gather point is selected.
+    *   Added a dashed white line connecting the building to the gather point.
+6.  **Pause System**: Added a Pause/Resume button in the top-right corner.
+7.  **Win/Lose Condition**: Added game loop logic to detect when all units/buildings of a faction are destroyed and display a Game Over screen.
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Age of Empires 3D Prototype (v6.1 - Features & Polish)</title>
+    <style>
+        :root {
+            --ui-bg: rgba(20, 20, 30, 0.95);
+            --ui-border: #8b7e66;
+            --ui-text: #f0e6d2;
+            --accent: #d4af37;
+            --danger: #ff4444;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1a1a1a;
+            user-select: none;
+        }
+
+        #game-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+
+        /* --- UI Overlay --- */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        #resource-bar, #control-panel, .action-btn, .res-item, #pause-btn {
+            pointer-events: auto;
+        }
+
+        /* Top Resource Bar */
+        #resource-bar {
+            background: var(--ui-bg);
+            border-bottom: 2px solid var(--ui-border);
+            padding: 8px 20px;
+            display: flex;
+            gap: 20px;
+            color: var(--ui-text);
+            font-weight: bold;
+            font-size: 1rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            position: relative;
+        }
+
+        .res-item { display: flex; align-items: center; gap: 6px; }
+        .res-icon { font-size: 1.2rem; }
+
+        /* Pop Warning Animation */
+        .pop-warning { color: var(--danger); animation: pulse-red 1s infinite; }
+        @keyframes pulse-red {
+            0% { text-shadow: 0 0 5px var(--danger); }
+            50% { text-shadow: 0 0 20px var(--danger); transform: scale(1.1); }
+            100% { text-shadow: 0 0 5px var(--danger); }
+        }
+
+        /* Pause Button */
+        #pause-btn {
+            position: absolute;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: #444;
+            color: white;
+            border: 1px solid var(--ui-border);
+            padding: 5px 15px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+        #pause-btn:hover { background: #666; }
+
+        /* Bottom Control Panel */
+        #control-panel {
+            background: var(--ui-bg);
+            border-top: 3px solid var(--ui-border);
+            padding: 15px;
+            height: 140px;
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        #selection-info {
+            width: 220px;
+            border-right: 1px solid var(--ui-border);
+            padding-right: 15px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        #selection-name { font-size: 1.3rem; color: var(--accent); font-weight: bold; margin-bottom: 5px; }
+        #selection-stats { font-size: 0.9rem; color: #ccc; }
+        #queue-info { font-size: 0.8rem; color: #aaa; margin-top: 5px; }
+
+        #actions-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 8px;
+            flex-grow: 1;
+        }
+
+        .action-btn {
+            background: linear-gradient(to bottom, #4a4a5e, #2a2a3e);
+            border: 1px solid var(--ui-border);
+            color: var(--ui-text);
+            padding: 8px;
+            cursor: pointer;
+            transition: all 0.1s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            position: relative;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.2);
+            border-radius: 4px;
+        }
+
+        .action-btn:hover { background: #505070; border-color: var(--accent); transform: translateY(-1px); }
+        .action-btn:active { transform: translateY(1px); }
+        .action-btn:disabled { opacity: 0.4; cursor: not-allowed; filter: grayscale(1); }
+        
+        .cost-tooltip { font-size: 0.7rem; color: #aaa; margin-top: 2px; }
+        .hotkey { position: absolute; top: 2px; right: 4px; font-size: 0.7rem; color: #ffd700; font-weight: bold; }
+
+        /* Selection Box */
+        #selection-box {
+            position: absolute;
+            border: 1px solid #00ff00;
+            background: rgba(0, 255, 0, 0.1);
+            pointer-events: none;
+            display: none;
+            z-index: 5;
+        }
+
+        /* Health Bar Overlay */
+        #health-bar-container {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; overflow: hidden; z-index: 4;
+        }
+
+        .hp-bar {
+            position: absolute;
+            width: 40px; height: 5px; background: #000;
+            transform: translate(-50%, -50%);
+            display: none; border: 1px solid rgba(0,0,0,0.5);
+            border-radius: 2px;
+        }
+        .hp-fill {
+            height: 100%; background: #00ff00; width: 100%;
+            transition: width 0.2s, background-color 0.2s;
+        }
+
+        /* Notifications */
+        #notification-area {
+            position: absolute; top: 80px; left: 50%;
+            transform: translateX(-50%);
+            display: flex; flex-direction: column; gap: 5px; align-items: center;
+        }
+        .toast {
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 6px 14px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            border-left: 4px solid var(--accent);
+            animation: fadeOut 3s forwards;
+        }
+        @keyframes fadeOut { 0% { opacity: 1; transform: translateY(0); } 80% { opacity: 1; } 100% { opacity: 0; transform: translateY(-20px); } }
+
+        /* Start / Game Over Screen */
+        #start-screen, #game-over-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 100;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            color: var(--ui-text);
+            pointer-events: auto;
+        }
+        #game-over-screen { display: none; } /* Hidden by default */
+        h1 { color: var(--accent); font-size: 3rem; margin-bottom: 10px; letter-spacing: 5px; text-transform: uppercase; }
+        .btn-large {
+            padding: 15px 40px; font-size: 1.5rem; background: var(--accent); color: #000; border: none; cursor: pointer; font-weight: bold;
+            border-radius: 4px; transition: transform 0.2s;
+        }
+        .btn-large:hover { transform: scale(1.05); background: #fff; }
+        .instructions { margin-bottom: 30px; text-align: center; line-height: 1.6; max-width: 600px; color: #ccc; }
+        .key { background: #444; padding: 2px 6px; border-radius: 4px; border-bottom: 2px solid #222; font-family: monospace; color: #fff; }
+
+    </style>
+</head>
+<body>
+
+    <!-- 3D Canvas -->
+    <div id="game-container"></div>
+    <div id="selection-box"></div>
+    <div id="health-bar-container"></div>
+
+    <!-- UI Overlay -->
+    <div id="ui-layer">
+        <div id="resource-bar">
+            <div class="res-item"><span class="res-icon">🪵</span> <span id="res-wood">200</span></div>
+            <div class="res-item"><span class="res-icon">🌾</span> <span id="res-food">200</span></div>
+            <div class="res-item"><span class="res-icon">🪙</span> <span id="res-gold">100</span></div>
+            <div class="res-item"><span class="res-icon">🛢️</span> <span id="res-oil">0</span></div>
+            <div class="res-item" style="margin-left:auto; color: #aaa; font-size: 0.9rem;">
+                Pop: <span id="res-pop">0</span>/<span id="res-max-pop">5</span>
+            </div>
+            <button id="pause-btn">Pause</button>
+        </div>
+
+        <div id="notification-area"></div>
+
+        <div id="control-panel">
+            <div id="selection-info">
+                <div id="selection-name">Nothing Selected</div>
+                <div id="selection-stats">-</div>
+                <div id="queue-info"></div>
+            </div>
+            <div id="actions-grid"></div>
+        </div>
+    </div>
+
+    <!-- Start Screen -->
+    <div id="start-screen">
+        <h1>Empire Prototype V6.1</h1>
+        <div class="instructions">
+            <p><strong>Features:</strong> Config Refactor, Soldier Retaliation, Gather Point Flags, Pause/Win Condition.</p>
+            <p><strong>Controls:</strong></p>
+            <p>Left Click: Select | Arrow Keys: Pan Camera | Right Click: Command | '.' (dot): Select Idle</p>
+        </div>
+        <button class="btn-large" onclick="window.startGame()">Start Game</button>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="game-over-screen">
+        <h1 id="game-over-title">GAME OVER</h1>
+        <p id="game-over-msg" class="instructions"></p>
+        <button class="btn-large" onclick="location.reload()">Restart</button>
+    </div>
+
+    <!-- Logic -->
+    <script type="importmap">
+        { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
+    </script>
+    
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- CONFIGURATION (CENTRALIZED TRUTH) ---
+        const CONFIG = {
+            COLORS: {
+                PLAYER: 0x4488ff,
+                PLAYER_BUILDING: 0x3366cc,
+                ENEMY: 0xff4444,
+                ENEMY_BUILDING: 0xcc3333,
+                GHOST: 0x00ff00,
+                GROUND: 0x2e5a2e,
+                FOUNDATION: 0x555555
+            },
+            ENTITIES: {
+                VILLAGER: { 
+                    type: 'Villager', cost: { food: 50 }, time: 3, hp: 50, speed: 15, 
+                    range: 3, damage: 3, color: 0x4488ff, height: 2.2 
+                },
+                SOLDIER: { 
+                    type: 'Soldier', cost: { food: 60, gold: 20 }, time: 4, hp: 100, speed: 22, 
+                    range: 1.5, damage: 12, color: 0x4488ff, height: 3.0 
+                },
+                TOWNCENTER: { // Matched to 'TownCenter'.toUpperCase()
+                    type: 'TownCenter', cost: {}, time: 0, hp: 1000, 
+                    color: 0x3366cc, popBonus: 5 
+                },
+                HOUSE: { 
+                    type: 'House', cost: { wood: 30 }, time: 5, hp: 200, 
+                    color: 0x3366cc, popBonus: 5 
+                },
+                BARRACKS: { 
+                    type: 'Barracks', cost: { wood: 150 }, time: 8, hp: 500, 
+                    color: 0x3366cc, popBonus: 0 
+                }
+            },
+            AI_THINK_INTERVAL: 2000,
+            AI_APM_LIMIT: 1000
+        };
+
+        // --- STATE ---
+        const state = {
+            playerResources: { wood: 200, food: 200, gold: 100, oil: 0 },
+            enemyResources: { wood: 200, food: 200, gold: 100, oil: 0 },
+            playerPop: 0, playerMaxPop: 5,
+            enemyPop: 0, enemyMaxPop: 5,
+            
+            selection: [],
+            entities: [],
+            buildingMode: null,
+            ghostMesh: null,
+            isPlaying: false,
+            isPaused: false, // V6.1
+            
+            aiMemory: {
+                buildingHouse: false,
+                buildingBarracks: false,
+                gatherRate: { wood: 0, food: 0, gold: 0 },
+                lastActionTime: 0
+            },
+
+            keysPressed: {},
+            gameOver: false
+        };
+
+        // --- THREE.JS SETUP ---
+        const container = document.getElementById('game-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB);
+        scene.fog = new THREE.Fog(0x87CEEB, 100, 350);
+
+        const aspect = window.innerWidth / window.innerHeight;
+        const d = 100;
+        const camera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, 1, 1000);
+        camera.position.set(100, 100, 100);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        container.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableRotate = true;
+        controls.enableZoom = true;
+        controls.enablePan = false;
+        controls.minZoom = 0.5;
+        controls.maxZoom = 2;
+        controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
+
+        // Lighting
+        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(50, 100, 50);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        scene.add(dirLight);
+
+        let ground = null;
+        let grid = null;
+
+        /**
+         * ASSET GENERATION LOGIC
+         */
+        const AssetFactory = {
+            create: function(type, civ, color, overrideMat) {
+                const group = new THREE.Group();
+                const material = overrideMat || new THREE.MeshStandardMaterial({ color: color });
+                
+                const addMesh = (geo, mat, pos, scale) => {
+                    const mesh = new THREE.Mesh(geo, mat || material);
+                    if(pos) mesh.position.copy(pos);
+                    if(scale) mesh.scale.set(scale, scale, scale);
+                    mesh.castShadow = true;
+                    mesh.receiveShadow = true;
+                    group.add(mesh);
+                };
+
+                const createBase = (w, h, d) => {
+                    const geo = new THREE.BoxGeometry(w, h, d);
+                    addMesh(geo, null, new THREE.Vector3(0, h/2, 0), 1);
+                    const roofGeo = new THREE.ConeGeometry(Math.max(w,d)*0.7, h*0.8, 4);
+                    addMesh(roofGeo, new THREE.MeshStandardMaterial({color: civ==='enemy'?0xaa3333:0x3366cc}), new THREE.Vector3(0, h + h*0.4, 0), 1);
+                };
+
+                // Types must match keys in CONFIG.ENTITIES exactly (Case insensitive mapping usually)
+                // But here we switch on string 'TownCenter', 'House', etc.
+                switch(type) {
+                    case CONFIG.ENTITIES.TOWNCENTER.type:
+                        createBase(8, 6, 8);
+                        addMesh(new THREE.CylinderGeometry(0.2, 0.2, 8), new THREE.MeshStandardMaterial({color:0x8B4513}), new THREE.Vector3(3, 4, 0), 1);
+                        break;
+                    case CONFIG.ENTITIES.HOUSE.type:
+                        createBase(5, 4, 5);
+                        break;
+                    case CONFIG.ENTITIES.BARRACKS.type:
+                        createBase(8, 5, 6);
+                        addMesh(new THREE.BoxGeometry(2, 5, 2), new THREE.MeshStandardMaterial({color:0x555555}), new THREE.Vector3(-2, 2.5, 2), 1);
+                        addMesh(new THREE.BoxGeometry(2, 5, 2), new THREE.MeshStandardMaterial({color:0x555555}), new THREE.Vector3(2, 2.5, 2), 1);
+                        break;
+                    default: break;
+                }
+                return group;
+            },
+
+            createFlag: function(color) {
+                const group = new THREE.Group();
+                // Pole
+                const poleGeo = new THREE.CylinderGeometry(0.1, 0.1, 4, 8);
+                const poleMat = new THREE.MeshStandardMaterial({ color: 0x555555 });
+                const pole = new THREE.Mesh(poleGeo, poleMat);
+                pole.position.y = 2;
+                pole.castShadow = true;
+                group.add(pole);
+                // Flag
+                const flagGeo = new THREE.PlaneGeometry(1.5, 1);
+                const flagMat = new THREE.MeshStandardMaterial({ color: color, side: THREE.DoubleSide });
+                const flag = new THREE.Mesh(flagGeo, flagMat);
+                flag.position.set(0.75, 3, 0);
+                group.add(flag);
+                group.userData.isFlag = true;
+                return group;
+            }
+        };
+
+        // --- ENTITY SYSTEM ---
+        class Entity {
+            constructor(type, owner, position) {
+                this.id = Math.random().toString(36).substr(2, 9);
+                this.type = type;
+                this.owner = owner;
+                this.position = position.clone();
+                this.mesh = null;
+                this.dead = false;
+                
+                // Stats from CONFIG - Bidirectional lookup via type.toUpperCase()
+                const stats = CONFIG.ENTITIES[type.toUpperCase()] || { hp: 100 };
+                this.hp = stats.hp;
+                this.maxHp = stats.hp;
+                
+                this.hpBarEl = document.createElement('div');
+                this.hpBarEl.className = 'hp-bar';
+                this.hpBarEl.innerHTML = '<div class="hp-fill"></div>';
+                document.getElementById('health-bar-container').appendChild(this.hpBarEl);
+            }
+
+            remove() {
+                this.dead = true;
+                if (this.mesh) scene.remove(this.mesh);
+                if (this.hpBarEl) this.hpBarEl.remove();
+                if (this.selectionRing) scene.remove(this.selectionRing);
+                
+                if (this instanceof Unit) {
+                    if (this.owner === 'player') state.playerPop--;
+                    else state.enemyPop--;
+                    updateUI();
+                } else if (this instanceof Building) {
+                    const popBonus = CONFIG.ENTITIES[this.type.toUpperCase()].popBonus;
+                    if (popBonus > 0) {
+                        if (this.owner === 'player') state.playerMaxPop -= popBonus;
+                        else state.enemyMaxPop -= popBonus;
+                        updateUI();
+                    }
+                }
+            }
+
+            // V6.1: Added attacker param for retaliation
+            takeDamage(amount, attacker = null) {
+                this.hp -= amount;
+                this.showHealthBar(true);
+                this.updateHealthBarUI();
+                
+                // Soldier Retaliation Logic
+                if (this instanceof Unit && this.type === CONFIG.ENTITIES.SOLDIER.type && attacker && attacker.owner !== this.owner) {
+                    this.state = 'ATTACK';
+                    this.targetEntity = attacker;
+                }
+
+                if (this.hp <= 0) this.remove();
+            }
+
+            showHealthBar(show) {
+                this.hpBarEl.style.display = show ? 'block' : 'none';
+            }
+
+            updateHealthBarUI() {
+                const fill = this.hpBarEl.querySelector('.hp-fill');
+                const pct = Math.max(0, this.hp / this.maxHp);
+                fill.style.width = (pct * 100) + '%';
+                fill.style.backgroundColor = pct > 0.5 ? '#00ff00' : (pct > 0.25 ? '#ffff00' : '#ff0000');
+            }
+        }
+
+        class Unit extends Entity {
+            constructor(type, owner, position) {
+                super(type, owner, position);
+                
+                const stats = CONFIG.ENTITIES[type.toUpperCase()];
+                this.speed = stats.speed;
+                this.range = stats.range;
+                this.attackDamage = stats.damage;
+                
+                this.state = 'IDLE'; 
+                this.targetPos = null;
+                this.targetEntity = null;
+                
+                this.constructType = null;
+                this.constructTimer = 0;
+                this.constructCost = null; 
+
+                this.inventory = 0;
+                this.maxInventory = 10;
+                this.gatherType = null;
+                
+                this.attackCooldown = 0;
+                this.attackTimerMax = 1.0;
+
+                const color = owner === 'player' ? CONFIG.COLORS.PLAYER : CONFIG.COLORS.ENEMY;
+                const height = stats.height;
+                const geometry = new THREE.CapsuleGeometry(0.8, height - 1.6, 4, 8);
+                const material = new THREE.MeshStandardMaterial({ color: color });
+                this.mesh = new THREE.Mesh(geometry, material);
+                this.mesh.position.copy(position);
+                this.mesh.position.y = height / 2;
+                this.mesh.castShadow = true;
+                this.mesh.receiveShadow = true;
+                this.mesh.userData = { entity: this };
+                scene.add(this.mesh);
+
+                const ringGeo = new THREE.RingGeometry(1.2, 1.4, 32);
+                const ringMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.6, side: THREE.DoubleSide });
+                this.selectionRing = new THREE.Mesh(ringGeo, ringMat);
+                this.selectionRing.rotation.x = -Math.PI / 2;
+                this.selectionRing.position.copy(position);
+                this.selectionRing.position.y = 0.1;
+                this.selectionRing.visible = false;
+                scene.add(this.selectionRing);
+            }
+
+            checkAutoReaction() {
+                if (this.state !== 'IDLE') return;
+
+                const enemies = state.entities.filter(e => e.owner !== this.owner && e instanceof Unit && !e.dead);
+                const nearestEnemy = enemies.sort((a,b) => a.position.distanceTo(this.position) - b.position.distanceTo(this.position))[0];
+
+                if (nearestEnemy && this.position.distanceTo(nearestEnemy.position) < this.range * 4) {
+                    if (this.type === CONFIG.ENTITIES.VILLAGER.type) {
+                        const tc = findNearestBuilding(this.owner, CONFIG.ENTITIES.TOWNCENTER.type);
+                        if (tc) {
+                            this.state = 'MOVE';
+                            this.targetPos = tc.position;
+                            if (this.owner === 'player') gameTTS.tts("Attacked! Running!");
+                        }
+                    } else if (this.type === CONFIG.ENTITIES.SOLDIER.type) {
+                        this.state = 'ATTACK';
+                        this.targetEntity = nearestEnemy;
+                        if (this.owner === 'player') gameTTS.tts("Engaging enemy!");
+                    }
+                }
+            }
+
+            update(dt) {
+                if (this.dead) return;
+                this.checkAutoReaction();
+
+                const screenPos = this.position.clone().project(camera);
+                const x = (screenPos.x + 1) / 2 * window.innerWidth;
+                const y = -(screenPos.y - 1) / 2 * window.innerHeight;
+                this.hpBarEl.style.left = x + 'px';
+                this.hpBarEl.style.top = (y - 20) + 'px';
+
+                this.attackCooldown -= dt;
+
+                if (this.state === 'MOVE' && this.targetPos) {
+                    this.moveTo(this.targetPos, dt);
+                    if (this.position.distanceTo(this.targetPos) < 1) this.state = 'IDLE';
+                }
+                else if (this.state === 'GATHER' && this.targetEntity) {
+                    if (this.targetEntity.dead) { this.state = 'IDLE'; return; }
+                    const dist = this.position.distanceTo(this.targetEntity.position);
+                    if (dist > 3) {
+                        this.moveTo(this.targetEntity.position, dt);
+                    } else {
+                        if (this.inventory < this.maxInventory) {
+                            this.inventory += dt * 2;
+                            const s = 1 + Math.sin(Date.now()*0.015)*0.1;
+                            this.mesh.scale.set(s,s,s);
+                        } else {
+                            this.state = 'RETURN';
+                            this.targetEntity = findNearestBuilding(this.owner, CONFIG.ENTITIES.TOWNCENTER.type);
+                            this.mesh.scale.setScalar(1);
+                        }
+                    }
+                }
+                else if (this.state === 'RETURN' && this.targetEntity) {
+                    const dist = this.position.distanceTo(this.targetEntity.position);
+                    if (dist > 4) {
+                        this.moveTo(this.targetEntity.position, dt);
+                    } else {
+                        const amount = Math.floor(this.inventory);
+                        if (amount > 0) {
+                            addResource(this.owner, this.gatherType, amount);
+                            if (this.owner === 'player') showFloatText(`+${amount}`, this.position);
+                        }
+                        this.inventory = 0;
+                        const lastResource = findNearestResource(this.position, this.gatherType);
+                        if (lastResource) {
+                            this.targetEntity = lastResource;
+                            this.state = 'GATHER';
+                        } else { this.state = 'IDLE'; }
+                    }
+                }
+                else if (this.state === 'ATTACK' && this.targetEntity) {
+                    if (this.targetEntity.dead) { this.state = 'IDLE'; return; }
+                    const dist = this.position.distanceTo(this.targetEntity.position);
+                    if (dist > this.range) {
+                        this.moveTo(this.targetEntity.position, dt);
+                    } else {
+                        if (this.attackCooldown <= 0) {
+                            // Pass 'this' as attacker
+                            this.targetEntity.takeDamage(this.attackDamage, this);
+                            this.attackCooldown = this.attackTimerMax;
+                        }
+                    }
+                }
+                else if (this.state === 'CONSTRUCT' && this.targetPos) {
+                    const dist = this.position.distanceTo(this.targetPos);
+                    if (dist > 2) {
+                        this.moveTo(this.targetPos, dt);
+                    } else {
+                        this.constructTimer += dt;
+                        this.mesh.rotation.y = Math.sin(Date.now() * 0.015) * 0.5;
+                        
+                        const buildTime = CONFIG.ENTITIES[this.constructType.toUpperCase()].time;
+                        
+                        if (this.constructTimer >= buildTime) {
+                            createBuilding(this.constructType, this.owner, this.targetPos);
+                            if (this.temporaryFoundationMesh) { scene.remove(this.temporaryFoundationMesh); }
+                            
+                            if (this.owner === 'enemy') {
+                                if (this.constructType === CONFIG.ENTITIES.HOUSE.type) state.aiMemory.buildingHouse = false;
+                                if (this.constructType === CONFIG.ENTITIES.BARRACKS.type) state.aiMemory.buildingBarracks = false;
+                            }
+                            
+                            this.state = 'IDLE';
+                            this.constructType = null;
+                            this.constructTimer = 0;
+                            this.constructCost = null;
+                            this.mesh.rotation.y = 0;
+                        }
+                    }
+                }
+
+                const neighbors = state.entities.filter(e => e !== this && e instanceof Unit && !e.dead && e.position.distanceTo(this.position) < 2.5);
+                if (neighbors.length > 0) {
+                    const sep = new THREE.Vector3();
+                    neighbors.forEach(n => sep.add(new THREE.Vector3().subVectors(this.position, n.position).normalize()));
+                    this.position.add(sep.multiplyScalar(dt * 5));
+                    this.syncMesh();
+                }
+            }
+
+            remove() {
+                if (this.state === 'CONSTRUCT' && this.constructCost) {
+                    addResource(this.owner, 'wood', this.constructCost.wood || 0);
+                    if (this.owner === 'player') notify("Builder died! Resources refunded.");
+                    if (this.temporaryFoundationMesh) scene.remove(this.temporaryFoundationMesh);
+                }
+                super.remove();
+            }
+
+            moveTo(target, dt) {
+                const dir = new THREE.Vector3().subVectors(target, this.position).normalize();
+                dir.y = 0;
+                this.position.add(dir.multiplyScalar(this.speed * dt));
+                this.syncMesh();
+                this.mesh.lookAt(target);
+            }
+            
+            syncMesh() {
+                this.mesh.position.copy(this.position);
+                this.mesh.position.y = CONFIG.ENTITIES[this.type.toUpperCase()].height / 2;
+                this.selectionRing.position.copy(this.position);
+                this.selectionRing.position.y = 0.1;
+            }
+
+            setSelected(bool) {
+                this.selectionRing.visible = bool;
+                this.showHealthBar(bool);
+            }
+        }
+
+        class Building extends Entity {
+            constructor(type, owner, position) {
+                super(type, owner, position);
+                
+                this.productionQueue = [];
+                this.productionTimer = 0;
+                this.isProducing = false;
+
+                // V6.1: Gather Point Visuals
+                this.gatherPointPos = null;
+                this.gatherPointFlag = null;
+                this.gatherPointLine = null;
+
+                const faction = owner === 'player' ? "kingdom" : "enemy";
+                const color = owner === 'player' ? CONFIG.COLORS.PLAYER_BUILDING : CONFIG.COLORS.ENEMY_BUILDING;
+                this.mesh = AssetFactory.create(type, faction, color);
+                this.mesh.position.copy(position);
+                this.mesh.castShadow = true;
+                this.mesh.receiveShadow = true;
+                this.mesh.userData = { entity: this };
+                scene.add(this.mesh);
+                
+                this.uiUpdateTimer = Date.now();
+                
+                const popBonus = CONFIG.ENTITIES[type.toUpperCase()].popBonus;
+                if (popBonus > 0) {
+                    if (owner === 'player') state.playerMaxPop += popBonus;
+                    else state.enemyMaxPop += popBonus;
+                    updateUI();
+                }
+            }
+
+            // V6.1: Handle visuals when selecting building
+            setSelected(bool) {
+                this.showHealthBar(bool);
+                if (bool && this.gatherPointPos) {
+                    this.showGatherPointVisuals(true);
+                } else {
+                    this.showGatherPointVisuals(false);
+                }
+            }
+
+            showGatherPointVisuals(show) {
+                if (show) {
+                    if (!this.gatherPointFlag) {
+                        this.gatherPointFlag = AssetFactory.createFlag(0xffffff);
+                        this.gatherPointFlag.position.copy(this.gatherPointPos);
+                        scene.add(this.gatherPointFlag);
+                    }
+                    if (!this.gatherPointLine) {
+                        const points = [this.position.clone(), this.gatherPointPos.clone()];
+                        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                        const material = new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 1, gapSize: 0.5, opacity: 0.5, transparent: true });
+                        this.gatherPointLine = new THREE.Line(geometry, material);
+                        this.gatherPointLine.computeLineDistances(); // Required for dashed lines
+                        scene.add(this.gatherPointLine);
+                    }
+                } else {
+                    if (this.gatherPointFlag) { scene.remove(this.gatherPointFlag); this.gatherPointFlag = null; }
+                    if (this.gatherPointLine) { scene.remove(this.gatherPointLine); this.gatherPointLine = null; }
+                }
+            }
+
+            update(dt) {
+                const screenPos = this.position.clone().project(camera);
+                const x = (screenPos.x + 1) / 2 * window.innerWidth;
+                const y = -(screenPos.y - 1) / 2 * window.innerHeight;
+                this.hpBarEl.style.left = x + 'px';
+                this.hpBarEl.style.top = (y - 40) + 'px';
+
+                if (this.productionQueue.length > 0) {
+                    this.isProducing = true;
+                    this.productionTimer += dt;
+
+                    const currentItem = this.productionQueue[0];
+                    const timeNeeded = CONFIG.ENTITIES[currentItem.type.toUpperCase()].time;
+
+                    if (this.isProducing) {
+                        const s = 1 + Math.sin(Date.now()*0.005) * 0.02;
+                        this.mesh.scale.set(s,s,s);
+                    }
+
+                    if (this.productionTimer >= timeNeeded) {
+                        const pop = this.owner === 'player' ? state.playerPop : state.enemyPop;
+                        const max = this.owner === 'player' ? state.playerMaxPop : state.enemyMaxPop;
+
+                        if (pop < max) {
+                            const spawnPos = this.position.clone().add(new THREE.Vector3(0, 0, 8));
+                            const spawnedUnit = createUnit(currentItem.type, this.owner, spawnPos);
+                            if (this.gatherPointPos) {
+                                spawnedUnit.state = 'MOVE'; spawnedUnit.targetPos = this.gatherPointPos;
+                            }
+
+                            this.productionQueue.shift();
+                            this.productionTimer = 0;
+
+                            if (this.productionQueue.length === 0) {
+                                this.isProducing = false;
+                                this.mesh.scale.setScalar(1);
+                            }
+                            if (state.selection.includes(this)) updateUISelection();
+                        } else {
+                            if (this.owner === 'player' && Date.now() - this.uiUpdateTimer > 2000) {
+                                notify("Population Full! Build House.");
+                                this.uiUpdateTimer = Date.now();
+                            }
+                        }
+                    }
+                    
+                    const now = Date.now();
+                    if (now - this.uiUpdateTimer > 500) {
+                        if (state.selection.includes(this)) updateUISelection();
+                        this.uiUpdateTimer = now;
+                    }
+                } else {
+                     this.mesh.scale.setScalar(1);
+                }
+            }
+
+            addToQueue(type, cost, owner) {
+                this.productionQueue.push({ type, cost, owner });
+            }
+        }
+
+        class Resource extends Entity {
+            constructor(type, position) {
+                super(type, 'gaia', position);
+                let color, geo;
+                if (type === 'Tree') {
+                    color = 0x2e8b57; geo = new THREE.ConeGeometry(1.5, 6, 8); this.meshType = 'wood';
+                } else if (type === 'GoldMine') {
+                    color = 0xffd700; geo = new THREE.DodecahedronGeometry(2.5); this.meshType = 'gold';
+                } else if (type === 'BerryBush') {
+                    color = 0xff6347; geo = new THREE.SphereGeometry(1.5, 8, 8); this.meshType = 'food';
+                } else if (type === 'OilSeep') {
+                    color = 0x111111; geo = new THREE.CylinderGeometry(3, 3, 0.5, 16); this.meshType = 'oil';
+                }
+                const mat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.8 });
+                this.mesh = new THREE.Mesh(geo, mat);
+                this.mesh.position.copy(position);
+                this.mesh.position.y = type === 'Tree' ? 3 : (type === 'OilSeep' ? 0.25 : 1.5);
+                this.mesh.castShadow = true;
+                this.mesh.receiveShadow = true;
+                this.mesh.userData = { entity: this };
+                scene.add(this.mesh);
+            }
+            
+            update(dt) {}
+        }
+
+        // --- MAP GEN ---
+        class MapGenerator {
+            constructor(settings) {
+                this.settings = settings;
+                this.usedPositions = [];
+            }
+            
+            generate() {
+                const size = this.settings.mapSize;
+                const fullSize = size * 2;
+                const groundGeo = new THREE.PlaneGeometry(fullSize, fullSize);
+                const groundMat = new THREE.MeshStandardMaterial({ color: CONFIG.COLORS.GROUND });
+                ground = new THREE.Mesh(groundGeo, groundMat);
+                ground.rotation.x = -Math.PI / 2;
+                ground.receiveShadow = true;
+                ground.name = "Ground";
+                scene.add(ground);
+                
+                const mygrid = new THREE.GridHelper(fullSize, fullSize/10, 0x000000, 0x000000);
+                mygrid.material.opacity = 0.1;
+                mygrid.material.transparent = true;
+                scene.add(mygrid);
+                grid = mygrid;
+
+                this.setupPlayer('player', new THREE.Vector3(-50, 0, -50));
+                this.setupPlayer('enemy', new THREE.Vector3(50, 0, 50));
+
+                for(let i=0; i<30; i++) this.spawnRandomResource('Tree', 80);
+                for(let i=0; i<4; i++) this.spawnRandomResource('GoldMine', 150);
+                for(let i=0; i<4; i++) this.spawnRandomResource('BerryBush', 150);
+            }
+
+            setupPlayer(owner, pos) {
+                createBuilding(CONFIG.ENTITIES.TOWNCENTER.type, owner, pos);
+                createUnit(CONFIG.ENTITIES.VILLAGER.type, owner, pos.clone().add(new THREE.Vector3(5, 0, 5)));
+                createUnit(CONFIG.ENTITIES.VILLAGER.type, owner, pos.clone().add(new THREE.Vector3(-5, 0, 5)));
+                createUnit(CONFIG.ENTITIES.SOLDIER.type, owner, pos.clone().add(new THREE.Vector3(0, 0, -8)));
+            }
+
+            spawnRandomResource(type, margin) {
+                let pos, valid;
+                let attempts = 0;
+                do {
+                    const range = this.settings.mapSize - margin;
+                    pos = new THREE.Vector3((Math.random()-0.5)*2*range, 0, (Math.random()-0.5)*2*range);
+                    valid = true;
+                    for(let used of this.usedPositions) {
+                        if(used.distanceTo(pos) < 10) valid = false;
+                    }
+                    attempts++;
+                } while(!valid && attempts < 50);
+                
+                if(valid) {
+                    this.usedPositions.push(pos);
+                    createResource(type, pos);
+                }
+            }
+        }
+
+        class CityPlanner {
+            constructor(townCenterPosition) {
+                this.tc = townCenterPosition;
+                this.occupied = [];
+                this.ring = 0;
+            }
+            
+            planLocation(type) {
+                const size = type === CONFIG.ENTITIES.HOUSE.type ? 5 : 8;
+                for(let r = 10; r < 100; r += 5) {
+                    for(let theta = 0; theta < Math.PI * 2; theta += 0.5) {
+                        const x = Math.cos(theta) * r;
+                        const z = Math.sin(theta) * r;
+                        const pos = new THREE.Vector3(x, 0, z).add(this.tc);
+                        
+                        let collision = false;
+                        for(let entity of state.entities) {
+                            if (entity.position.distanceTo(pos) < size + 4) collision = true;
+                        }
+                        
+                        if(!collision) return pos.clone().sub(this.tc);
+                    }
+                }
+                return new THREE.Vector3(10, 0, 10);
+            }
+        }
+
+        let enemyAI = null;
+
+        // --- GAMEPLAY LOGIC ---
+
+        function initGame(mapSize = 200) {
+            const mapGen = new MapGenerator({ mapSize: mapSize });
+            mapGen.generate();
+            
+            const tc = getEnemyTownCenter();
+            if(tc) enemyAI = new CityPlanner(tc.position);
+
+            state.isPlaying = true;
+            animate();
+            setInterval(aiTick, CONFIG.AI_THINK_INTERVAL);
+            // V6.1: Check Win/Lose every second
+            setInterval(checkWinCondition, 1000);
+        }
+
+        function checkWinCondition() {
+            if (state.gameOver) return;
+            
+            const playerUnits = state.entities.filter(e => e.owner === 'player' && !e.dead);
+            const enemyUnits = state.entities.filter(e => e.owner === 'enemy' && !e.dead);
+            
+            if (playerUnits.length === 0) endGame(false);
+            else if (enemyUnits.length === 0) endGame(true);
+        }
+
+        function endGame(playerWon) {
+            state.gameOver = true;
+            state.isPaused = true;
+            const screen = document.getElementById('game-over-screen');
+            const title = document.getElementById('game-over-title');
+            const msg = document.getElementById('game-over-msg');
+            
+            screen.style.display = 'flex';
+            if (playerWon) {
+                title.innerText = "VICTORY";
+                title.style.color = CONFIG.COLORS.ACCENT;
+                msg.innerText = "You have destroyed the enemy empire!";
+            } else {
+                title.innerText = "DEFEAT";
+                title.style.color = CONFIG.COLORS.DANGER;
+                msg.innerText = "Your empire has fallen.";
+            }
+        }
+
+        function addResource(owner, type, amount) {
+            if (!type || type === 'oil') return; 
+            const res = owner === 'player' ? state.playerResources : state.enemyResources;
+            if (res[type] !== undefined) {
+                res[type] += amount;
+                if (owner === 'player') updateUI();
+            }
+        }
+
+        function createUnit(type, owner, pos) {
+            const pop = owner === 'player' ? state.playerPop : state.enemyPop;
+            const max = owner === 'player' ? state.playerMaxPop : state.enemyMaxPop;
+            
+            if (pop >= max) { 
+                if (owner === 'player') notify("Population Limit Reached!"); 
+                return; 
+            }
+            
+            const u = new Unit(type, owner, pos);
+            state.entities.push(u);
+            if (owner === 'player') state.playerPop++;
+            else state.enemyPop++;
+            updateUI();
+            return u;
+        }
+
+        function createBuilding(type, owner, pos) {
+            const b = new Building(type, owner, pos);
+            state.entities.push(b);
+        }
+
+        function createResource(type, pos) {
+            state.entities.push(new Resource(type, pos));
+        }
+
+        function findNearestBuilding(owner, type) {
+            let nearest = null; let minDist = Infinity;
+            state.entities.forEach(e => {
+                if (e.owner === owner && e.type === type && !e.dead) {
+                    const d = e.position.distanceTo(this ? this.position : new THREE.Vector3(0,0,0));
+                    if (d < minDist) { minDist = d; nearest = e; }
+                }
+            });
+            return nearest;
+        }
+
+        function findNearestResource(pos, type) {
+            let nearest = null; let minDist = Infinity;
+            state.entities.forEach(e => {
+                if ((type ? e.meshType === type : true) && !e.dead) {
+                    const d = e.position.distanceTo(pos);
+                    if (d < minDist) { minDist = d; nearest = e; }
+                }
+            });
+            return nearest;
+        }
+
+        function trainUnit(building, unitType, cost, owner) {
+            const res = owner === 'player' ? state.playerResources : state.enemyResources;
+            if (res.food < (cost.food||0) || res.gold < (cost.gold||0) || res.wood < (cost.wood||0)) {
+                if (owner === 'player') notify("Insufficient Resources!");
+                return false;
+            }
+
+            res.food -= (cost.food||0);
+            res.gold -= (cost.gold||0);
+            res.wood -= (cost.wood||0);
+            if (owner === 'player') updateUI();
+
+            building.addToQueue(unitType, cost, owner);
+            return true;
+        }
+
+        // --- AI SYSTEM ---
+        const AI_RULES = [
+            {
+                name: "Build House",
+                condition: () => {
+                    const pop = state.enemyPop;
+                    const max = state.enemyMaxPop;
+                    return (pop + 2 >= max) && !state.aiMemory.buildingHouse && state.enemyResources.wood >= 30;
+                },
+                action: () => {
+                    const villager = getEnemyVillager(true);
+                    const tc = getEnemyTownCenter();
+                    if (villager && tc && enemyAI) {
+                        const spot = tc.position.clone().add(enemyAI.planLocation(CONFIG.ENTITIES.HOUSE.type));
+                        state.enemyResources.wood -= 30;
+                        villager.state = 'CONSTRUCT';
+                        villager.targetPos = spot;
+                        villager.constructType = CONFIG.ENTITIES.HOUSE.type;
+                        villager.constructTimer = 0;
+                        villager.constructCost = { wood: 30 };
+                        state.aiMemory.buildingHouse = true;
+                    }
+                }
+            },
+            {
+                name: "Build Barracks",
+                condition: () => {
+                    const barracks = state.entities.filter(e => e.owner === 'enemy' && e.type === CONFIG.ENTITIES.BARRACKS.type).length;
+                    return barracks === 0 && !state.aiMemory.buildingBarracks && state.enemyResources.wood >= 150;
+                },
+                action: () => {
+                    const villager = getEnemyVillager(true);
+                    const tc = getEnemyTownCenter();
+                    if (villager && tc && enemyAI) {
+                        const spot = tc.position.clone().add(enemyAI.planLocation(CONFIG.ENTITIES.BARRACKS.type));
+                        state.enemyResources.wood -= 150;
+                        villager.state = 'CONSTRUCT';
+                        villager.targetPos = spot;
+                        villager.constructType = CONFIG.ENTITIES.BARRACKS.type;
+                        villager.constructTimer = 0;
+                        villager.constructCost = { wood: 150 };
+                        state.aiMemory.buildingBarracks = true;
+                    }
+                }
+            },
+            {
+                name: "Train Villager",
+                condition: () => {
+                    const tc = getEnemyTownCenter();
+                    const vills = state.entities.filter(e => e.owner === 'enemy' && e.type === CONFIG.ENTITIES.VILLAGER.type && !e.dead).length;
+                    const sols = state.entities.filter(e => e.owner === 'enemy' && e.type === CONFIG.ENTITIES.SOLDIER.type && !e.dead).length;
+                    return tc && tc.productionQueue.length < 2 && state.enemyResources.food >= 50 && sols >= vills / 3;
+                },
+                action: () => {
+                    const tc = getEnemyTownCenter();
+                    if (tc) trainUnit(tc, CONFIG.ENTITIES.VILLAGER.type, CONFIG.ENTITIES.VILLAGER.cost, 'enemy');
+                }
+            },
+            {
+                name: "Assign Idle Villagers",
+                condition: () => getEnemyVillager(true) !== undefined,
+                action: () => {
+                    const v = getEnemyVillager(true);
+                    if (!v) return;
+                    
+                    let allResType = [
+                        { type: 'wood', rate: 0.5 * state.aiMemory.gatherRate.wood }, 
+                        { type: 'food', rate: 0.33 * state.aiMemory.gatherRate.food }, 
+                        { type: 'gold', rate: 1 * state.aiMemory.gatherRate.gold }
+                    ];
+                    allResType.sort((a, b) => a.rate - b.rate);
+
+                    let target = null;
+                    let resType = 'food';
+                    for (let res of allResType) {
+                        target = findNearestResource(v.position, res.type);
+                        if (target) {
+                            resType = res.type;
+                            break;
+                        }
+                    }
+                    
+                    if (target) {
+                        v.state = 'GATHER';
+                        v.targetEntity = target;
+                        v.gatherType = resType;
+                        state.aiMemory.gatherRate[resType]++;
+                    }
+                }
+            },
+            {
+                name: "Train Soldier",
+                condition: () => {
+                    const barracks = state.entities.find(e => e.owner === 'enemy' && e.type === CONFIG.ENTITIES.BARRACKS.type);
+                    return barracks && barracks.productionQueue.length < 2 && 
+                           state.enemyResources.food >= 60 && state.enemyResources.gold >= 20;
+                },
+                action: () => {
+                    const barracks = state.entities.find(e => e.owner === 'enemy' && e.type === CONFIG.ENTITIES.BARRACKS.type);
+                    if (barracks) trainUnit(barracks, CONFIG.ENTITIES.SOLDIER.type, CONFIG.ENTITIES.SOLDIER.cost, 'enemy');
+                }
+            }
+        ];
+
+        function aiTick() {
+            if (!state.isPlaying || state.isPaused) return;
+            const now = Date.now();
+            if (now - state.aiMemory.lastActionTime < CONFIG.AI_APM_LIMIT) return;
+
+            for (let rule of AI_RULES) {
+                if (rule.condition()) {
+                    rule.action();
+                    state.aiMemory.lastActionTime = now;
+                    break;
+                }
+            }
+        }
+
+        function getEnemyTownCenter() {
+            return state.entities.find(e => e.owner === 'enemy' && e.type === CONFIG.ENTITIES.TOWNCENTER.type && !e.dead);
+        }
+        function getEnemyVillager(idleOnly = false) {
+            return state.entities.find(e => 
+                e.owner === 'enemy' && 
+                e.type === CONFIG.ENTITIES.VILLAGER.type && 
+                !e.dead && 
+                (!idleOnly || e.state === 'IDLE')
+            );
+        }
+
+        // --- INPUT & INTERACTION ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let isDragging = false;
+        let dragStart = new THREE.Vector2();
+        const selectionBoxDiv = document.getElementById('selection-box');
+        const canvas = renderer.domElement;
+
+        // V6.1: Pause Handler
+        document.getElementById('pause-btn').addEventListener('click', () => {
+            if(state.isPlaying && !state.gameOver) {
+                state.isPaused = !state.isPaused;
+                const btn = document.getElementById('pause-btn');
+                btn.innerText = state.isPaused ? "Resume" : "Pause";
+                btn.style.background = state.isPaused ? CONFIG.COLORS.ACCENT : '#444';
+                btn.style.color = state.isPaused ? '#000' : 'white';
+            }
+        });
+
+        window.addEventListener('keydown', (e) => {
+            state.keysPressed[e.key] = true;
+            if (!state.isPlaying || state.isPaused) return;
+            const k = e.key.toLowerCase();
+            
+            // V6.1: Restore '.' select idle
+            if (k === '.') selectAllIdleVillagers();
+
+            if (k === 'escape') {
+                if (state.buildingMode) cancelBuildingMode();
+                else clearSelection();
+            }
+            
+            const first = state.selection[0];
+            if (first instanceof Unit && first.type === CONFIG.ENTITIES.VILLAGER.type) {
+                if (k === 'h') startBuildingMode(CONFIG.ENTITIES.HOUSE.type, CONFIG.ENTITIES.HOUSE.cost);
+                if (k === 'b') startBuildingMode(CONFIG.ENTITIES.BARRACKS.type, CONFIG.ENTITIES.BARRACKS.cost);
+            }
+            if (first instanceof Building) {
+                if (first.type === CONFIG.ENTITIES.TOWNCENTER.type && k === 'v') trainUnit(first, CONFIG.ENTITIES.VILLAGER.type, CONFIG.ENTITIES.VILLAGER.cost, 'player');
+                if (first.type === CONFIG.ENTITIES.BARRACKS.type && k === 's') trainUnit(first, CONFIG.ENTITIES.SOLDIER.type, CONFIG.ENTITIES.SOLDIER.cost, 'player');
+            }
+        });
+        window.addEventListener('keyup', (e) => state.keysPressed[e.key] = false);
+
+        document.getElementById('ui-layer').addEventListener('mouseup', (e) => {
+            let clickedBtn = e.target.closest('button');
+            if (clickedBtn) {
+                const route = clickedBtn.getAttribute('data-ui-route-type');
+                const key = clickedBtn.getAttribute('data-ui-hotkey');
+                if (route === 'ActionButton') {
+                    const first = state.selection[0];
+                    if (!first) return;
+                    const k = key.toLowerCase();
+                    
+                    if (first instanceof Building) {
+                        if (first.type === CONFIG.ENTITIES.TOWNCENTER.type && k === 'v') trainUnit(first, CONFIG.ENTITIES.VILLAGER.type, CONFIG.ENTITIES.VILLAGER.cost, 'player');
+                        if (first.type === CONFIG.ENTITIES.BARRACKS.type && k === 's') trainUnit(first, CONFIG.ENTITIES.SOLDIER.type, CONFIG.ENTITIES.SOLDIER.cost, 'player');
+                    } else if (first instanceof Unit && first.type === CONFIG.ENTITIES.VILLAGER.type) {
+                        if (k === 'h') startBuildingMode(CONFIG.ENTITIES.HOUSE.type, CONFIG.ENTITIES.HOUSE.cost);
+                        if (k === 'b') startBuildingMode(CONFIG.ENTITIES.BARRACKS.type, CONFIG.ENTITIES.BARRACKS.cost);
+                    }
+                }
+            }
+        }, true);
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.target.closest('#ui-layer')) return;
+            if (e.button !== 0) return;
+            if (state.buildingMode) {
+                confirmBuildPlacement();
+                return;
+            }
+
+            isDragging = true;
+            const rect = canvas.getBoundingClientRect();
+            dragStart.set(e.clientX - rect.left, e.clientY - rect.top);
+            selectionBoxDiv.style.left = dragStart.x + 'px';
+            selectionBoxDiv.style.top = dragStart.y + 'px';
+            selectionBoxDiv.style.width = '0px';
+            selectionBoxDiv.style.height = '0px';
+            selectionBoxDiv.style.display = 'block';
+
+            if (!e.shiftKey) clearSelection();
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            if (state.buildingMode) {
+                mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+                mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObject(ground);
+                if (intersects.length > 0) state.ghostMesh.position.copy(intersects[0].point);
+                return;
+            }
+
+            if (isDragging) {
+                const currentX = e.clientX - rect.left;
+                const currentY = e.clientY - rect.top;
+                const w = Math.abs(currentX - dragStart.x);
+                const h = Math.abs(currentY - dragStart.y);
+                const l = Math.min(currentX, dragStart.x);
+                const t = Math.min(currentY, dragStart.y);
+                selectionBoxDiv.style.width = w + 'px';
+                selectionBoxDiv.style.height = h + 'px';
+                selectionBoxDiv.style.left = l + 'px';
+                selectionBoxDiv.style.top = t + 'px';
+            }
+        });
+
+        window.addEventListener('mouseup', (e) => {
+            if (e.button !== 0) return;
+            if (state.buildingMode) return;
+            if (e.target.closest('#ui-layer')) return;
+            
+            isDragging = false;
+            selectionBoxDiv.style.display = 'none';
+
+            const rect = canvas.getBoundingClientRect();
+            const dragEnd = new THREE.Vector2(e.clientX - rect.left, e.clientY - rect.top);
+            const dist = dragStart.distanceTo(dragEnd);
+
+            if (dist < 5) {
+                mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+                mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObjects(scene.children, true);
+                let clickedEntity = null;
+                for (let hit of intersects) {
+                    if (hit.object.userData.entity) {
+                        clickedEntity = hit.object.userData.entity;
+                        break;
+                    }
+                    if (hit.object.parent && hit.object.parent.userData.entity) {
+                        clickedEntity = hit.object.parent.userData.entity;
+                        break;
+                    }
+                }
+                selectEntity(clickedEntity, e.shiftKey);
+            } else {
+                boxSelection(dragStart, dragEnd);
+            }
+        });
+
+        window.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            if (state.buildingMode) { cancelBuildingMode(); return; }
+            if (state.selection.length === 0) return;
+
+            const rect = canvas.getBoundingClientRect();
+            mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(scene.children, true);
+
+            let targetEntity = null;
+            let groundPoint = null;
+            for (let hit of intersects) {
+                if (hit.object.userData.entity) { targetEntity = hit.object.userData.entity; break; }
+                else if (hit.object.parent && hit.object.parent.userData.entity) { targetEntity = hit.object.parent.userData.entity; break; }
+                else if (hit.object.name === "Ground") { groundPoint = hit.point; }
+            }
+
+            let firstUnit = true;
+            state.selection.forEach(unit => {
+                if (unit instanceof Unit) {
+                    if (targetEntity) {
+                        if (targetEntity.owner === 'enemy') {
+                            unit.state = 'ATTACK'; unit.targetEntity = targetEntity;
+                        } else if (targetEntity instanceof Resource) {
+                            unit.state = 'GATHER'; unit.targetEntity = targetEntity; unit.gatherType = targetEntity.meshType;
+                        } else {
+                            unit.state = 'MOVE'; unit.targetPos = targetEntity.position;
+                        }
+                    } else if (groundPoint) {
+                        unit.state = 'MOVE'; unit.targetPos = groundPoint;
+                        createClickMarker(groundPoint);
+                    }
+                    if (firstUnit) { gameTTS.tts(getVoiceOverLine('unitCommand', { action: unit.state, target: targetEntity }) ); }
+                }
+                if (unit instanceof Building) {
+                    if (groundPoint) {
+                        unit.gatherPointPos = groundPoint;
+                        // Update visual immediately if selected
+                        if (state.selection.includes(unit)) unit.setSelected(true); 
+                        createClickMarker(groundPoint);
+                    }
+                }
+                firstUnit = false;
+            });
+        });
+
+        // --- SELECTION & UI ---
+        function selectEntity(entity, additive) {
+            if (!additive) clearSelection();
+            if (entity && entity.owner === 'player') {
+                if (!state.selection.includes(entity)) {
+                    state.selection.push(entity);
+                    entity.setSelected(true);
+                }
+                if (entity instanceof Unit) gameTTS.tts(getVoiceOverLine('selectUnit', entity.type));
+            }
+            updateUISelection();
+        }
+
+        // V6.1: Restore Select All Idle
+        function selectAllIdleVillagers() {
+            clearSelection();
+            const type = CONFIG.ENTITIES.VILLAGER.type;
+            state.entities.forEach(e => {
+                if (e instanceof Unit && e.owner === 'player' && e.type === type && e.state === 'IDLE') {
+                    state.selection.push(e);
+                    e.setSelected(true);
+                }
+            });
+            updateUISelection();
+            if (state.selection.length > 0) { notify(`Selected ${state.selection.length} idle villagers`); }
+            else { notify(`No idle villagers`); }
+        }
+
+        function boxSelection(start, end) {
+            clearSelection();
+            const left = Math.min(start.x, end.x);
+            const right = Math.max(start.x, end.x);
+            const top = Math.min(start.y, end.y);
+            const bottom = Math.max(start.y, end.y);
+
+            state.entities.forEach(entity => {
+                if (entity instanceof Unit && entity.owner === 'player') {
+                    const screenPos = entity.position.clone().project(camera);
+                    const x = (screenPos.x + 1) / 2 * window.innerWidth;
+                    const y = -(screenPos.y - 1) / 2 * window.innerHeight;
+                    if (x >= left && x <= right && y >= top && y <= bottom) {
+                        state.selection.push(entity);
+                        entity.setSelected(true);
+                    }
+                }
+            });
+            updateUISelection();
+        }
+
+        function clearSelection() {
+            state.selection.forEach(e => e.setSelected(false));
+            state.selection = [];
+            updateUISelection();
+        }
+
+        function updateUI() {
+            document.getElementById('res-wood').innerText = Math.floor(state.playerResources.wood);
+            document.getElementById('res-food').innerText = Math.floor(state.playerResources.food);
+            document.getElementById('res-gold').innerText = Math.floor(state.playerResources.gold);
+            document.getElementById('res-oil').innerText = Math.floor(state.playerResources.oil);
+            document.getElementById('res-pop').innerText = state.playerPop;
+            const maxPopEl = document.getElementById('res-max-pop');
+            maxPopEl.innerText = state.playerMaxPop;
+
+            // V6.1: Pop Warning
+            if (state.playerPop >= state.playerMaxPop) {
+                maxPopEl.classList.add('pop-warning');
+            } else {
+                maxPopEl.classList.remove('pop-warning');
+            }
+        }
+
+        function updateUISelection() {
+            const nameEl = document.getElementById('selection-name');
+            const statsEl = document.getElementById('selection-stats');
+            const queueEl = document.getElementById('queue-info');
+            const grid = document.getElementById('actions-grid');
+            grid.innerHTML = '';
+
+            if (state.selection.length === 0) {
+                nameEl.innerText = "Nothing Selected";
+                statsEl.innerText = "";
+                queueEl.innerText = "";
+                return;
+            }
+
+            const first = state.selection[0];
+            if (state.selection.length > 1) {
+                nameEl.innerText = `${state.selection.length} Units`;
+                statsEl.innerText = "Ready";
+                queueEl.innerText = "";
+            } else {
+                nameEl.innerText = first.type;
+                statsEl.innerText = `HP: ${Math.floor(first.hp)}/${first.maxHp}`;
+                queueEl.innerText = "";
+
+                if (first instanceof Building) {
+                    if (first.productionQueue.length > 0) {
+                        const current = first.productionQueue[0];
+                        const timeNeeded = CONFIG.ENTITIES[current.type.toUpperCase()].time;
+                        const pct = Math.min(100, (first.productionTimer / timeNeeded) * 100);
+                        queueEl.innerText = `Producing: ${current.type} (${first.productionQueue.length}) [${Math.floor(pct)}%]`;
+                    } else {
+                        queueEl.innerText = "Idle";
+                    }
+
+                    if (first.type === CONFIG.ENTITIES.TOWNCENTER.type) createActionButton('Train Villager', '50 Food', 'V');
+                    if (first.type === CONFIG.ENTITIES.BARRACKS.type) createActionButton('Train Soldier', '60F / 20G', 'S');
+                }
+                
+                if (first instanceof Unit && first.type === CONFIG.ENTITIES.VILLAGER.type) {
+                    createActionButton('Build House', '30 Wood', 'H');
+                    createActionButton('Build Barracks', '150 Wood', 'B');
+                }
+            }
+        }
+
+        function createActionButton(label, cost, key) {
+            const btn = document.createElement('button');
+            btn.className = 'action-btn';
+            btn.innerHTML = `<span>${label}</span><span class="cost-tooltip">${cost}</span><span class="hotkey">${key}</span>`;
+            btn.setAttribute('data-ui-route-type', 'ActionButton');
+            btn.setAttribute('data-ui-hotkey', key);
+            document.getElementById('actions-grid').appendChild(btn);
+        }
+
+        // --- CONSTRUCTION SYSTEM ---
+        function startBuildingMode(type, cost) {
+            if (state.playerResources.wood < (cost.wood||0)) { notify("Not enough Wood!"); return; }
+            state.playerResources.wood -= (cost.wood||0);
+            updateUI();
+
+            state.buildingMode = { type, cost };
+            
+            const mat = new THREE.MeshBasicMaterial({ color: CONFIG.COLORS.GHOST, transparent: true, opacity: 0.5, wireframe: true });
+            state.ghostMesh = AssetFactory.create(type, "kingdom", CONFIG.COLORS.GHOST, mat);
+            scene.add(state.ghostMesh);
+        }
+
+        function confirmBuildPlacement() {
+            if (!state.buildingMode) return;
+            const pos = state.ghostMesh.position.clone();
+            pos.y = 0;
+            
+            let builder = null;
+            
+            if (state.selection.length > 0 && state.selection[0] instanceof Unit && state.selection[0].type === CONFIG.ENTITIES.VILLAGER.type) {
+                builder = state.selection[0];
+            }
+            
+            if (!builder) {
+                let minDist = Infinity;
+                state.entities.forEach(e => {
+                    if (e instanceof Unit && e.owner === 'player' && e.type === CONFIG.ENTITIES.VILLAGER.type && e.state === 'IDLE') {
+                        const d = e.position.distanceTo(pos);
+                        if (d < minDist) { minDist = d; builder = e; }
+                    }
+                });
+            }
+
+            if (builder) {
+                builder.state = 'CONSTRUCT';
+                builder.targetPos = pos;
+                builder.constructType = state.buildingMode.type;
+                builder.constructTimer = 0;
+                builder.constructCost = state.buildingMode.cost;
+
+                let w = 8, h = 0.4, d = 8;
+                if (state.buildingMode.type === CONFIG.ENTITIES.HOUSE.type) { w=5; d=5; }
+                
+                const geometry = new THREE.BoxGeometry(w, h, d);
+                const material = new THREE.MeshStandardMaterial({ color: CONFIG.COLORS.FOUNDATION });
+                const foundationMesh = new THREE.Mesh(geometry, material);
+                foundationMesh.position.copy(pos);
+                foundationMesh.position.y = h/2;
+                scene.add(foundationMesh);
+                builder.temporaryFoundationMesh = foundationMesh;
+                
+                cancelBuildingModeUI();
+            } else {
+                notify("Need an Idle Villager to build!");
+                state.playerResources.wood += state.buildingMode.cost.wood || 0;
+                updateUI();
+                cancelBuildingMode();
+            }
+        }
+
+        function cancelBuildingModeUI() {
+            if (state.ghostMesh) scene.remove(state.ghostMesh);
+            state.ghostMesh = null;
+            state.buildingMode = null;
+        }
+
+        function cancelBuildingMode() {
+            if (state.buildingMode) {
+                state.playerResources.wood += state.buildingMode.cost.wood || 0;
+                updateUI();
+                notify("Build Cancelled");
+            }
+            cancelBuildingModeUI();
+        }
+
+        // --- SOUND FX ---
+        class CustomTTS {
+            constructor() {
+                this.synth = window.speechSynthesis;
+                this.voices = [];
+                if (speechSynthesis.onvoiceschanged !== undefined) {
+                    speechSynthesis.onvoiceschanged = () => { this.voices = this.synth.getVoices(); };
+                }
+            }
+            tts(prompt) {
+                if (this.synth.speaking) this.synth.cancel();
+                const utter = new SpeechSynthesisUtterance(prompt);
+                utter.voice = this.voices.find(v => v.default) || this.voices[0];
+                utter.pitch = 1.0; utter.rate = 1.2;
+                this.synth.speak(utter);
+            }
+        }
+        const gameTTS = new CustomTTS();
+
+        function randomSelect(array) { return array[Math.floor(Math.random() * array.length)]; }
+        function getVoiceOverLine(event, data) {
+            if (event == 'selectUnit') {
+                if (data == CONFIG.ENTITIES.VILLAGER.type) return randomSelect(["Yes?", "How may I help?", "At your service!"]);
+                if (data == CONFIG.ENTITIES.SOLDIER.type) return randomSelect(["My Lord", "Ready for battle.", "At your command!"]);
+            }
+            if (event == 'unitCommand') {
+                if (data['action'] == 'ATTACK') return randomSelect(["Attack!", "Charge!", "For the King!"]);
+                if (data['action'] == 'GATHER') return "Gathering resources.";
+                if (data['action'] == 'MOVE') return randomSelect(["Moving.", "As you wish."]);
+            }
+            return "";
+        }
+
+        // --- FX ---
+        function createClickMarker(pos) {
+            const geo = new THREE.RingGeometry(0.5, 1, 16);
+            const mat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.copy(pos);
+            mesh.position.y += 0.2;
+            mesh.rotation.x = -Math.PI / 2;
+            scene.add(mesh);
+            let scale = 1;
+            function anim() {
+                scale -= 0.05;
+                mesh.scale.setScalar(scale);
+                mat.opacity = scale;
+                if (scale > 0) requestAnimationFrame(anim);
+                else scene.remove(mesh);
+            }
+            anim();
+        }
+
+        function showFloatText(text, pos) {
+            const div = document.createElement('div');
+            div.innerText = text;
+            div.style.position = 'absolute';
+            div.style.color = '#fff';
+            div.style.fontWeight = 'bold';
+            div.style.fontSize = '16px';
+            div.style.textShadow = '1px 1px 0 #000';
+            div.style.pointerEvents = 'none';
+            div.style.transition = 'top 1s, opacity 1s';
+            document.body.appendChild(div);
+
+            const screenPos = pos.clone().project(camera);
+            const x = (screenPos.x + 1) / 2 * window.innerWidth;
+            const y = -(screenPos.y - 1) / 2 * window.innerHeight;
+
+            div.style.left = x + 'px';
+            div.style.top = y + 'px';
+
+            requestAnimationFrame(() => {
+                div.style.top = (y - 50) + 'px';
+                div.style.opacity = 0;
+            });
+            setTimeout(() => div.remove(), 1000);
+        }
+
+        function notify(msg) {
+            const area = document.getElementById('notification-area');
+            const t = document.createElement('div');
+            t.className = 'toast';
+            t.innerText = msg;
+            area.appendChild(t);
+            setTimeout(() => t.remove(), 3000);
+        }
+
+        // --- LOOP ---
+        const clock = new THREE.Clock();
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // V6.1: Pause Logic
+            if (state.isPaused) {
+                renderer.render(scene, camera);
+                return;
+            }
+
+            const dt = clock.getDelta();
+            
+            // Camera Panning
+            const panSpeed = 50 * dt;
+            const forward = new THREE.Vector3();
+            camera.getWorldDirection(forward);
+            forward.y = 0; forward.normalize();
+            const right = new THREE.Vector3();
+            right.crossVectors(forward, camera.up).normalize();
+
+            if (state.keysPressed['ArrowUp']) {
+                camera.position.add(forward.multiplyScalar(panSpeed));
+                controls.target.add(forward);
+            }
+            if (state.keysPressed['ArrowDown']) {
+                camera.position.add(forward.multiplyScalar(-panSpeed));
+                controls.target.add(forward);
+            }
+            if (state.keysPressed['ArrowLeft']) {
+                camera.position.add(right.multiplyScalar(-panSpeed));
+                controls.target.add(right);
+            }
+            if (state.keysPressed['ArrowRight']) {
+                camera.position.add(right.multiplyScalar(panSpeed));
+                controls.target.add(right);
+            }
+
+            state.entities = state.entities.filter(e => !e.dead);
+            state.entities.forEach(e => e.update(dt));
+            
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        window.startGame = function() {
+            document.getElementById('start-screen').style.display = 'none';
+            initGame();
+        };
+
+        window.addEventListener('resize', () => {
+            const aspect = window.innerWidth / window.innerHeight;
+            camera.left = -d * aspect; camera.right = d * aspect;
+            camera.top = d; camera.bottom = -d;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
+```
