@@ -1,0 +1,886 @@
+
+
+We need to merge the "aggressive_refactored_new_codebase" (v6.1 branch b) with the "new_web_ui_system_draft", "missing_ai_rules", and "minor_new_features_code". 
+
+We have to be conservative: preserve architecture of base, and do not deviate from implementations provided for the major new module (the web UI system). For web UI, we integrate but only initial integration efforts; some features like configuring number of players are not implemented in backend, so we can't fully integrate them yet. But we need to integrate the UI elements (pages, modals, etc.) and basic navigation, but the game logic may not be fully connected (like multiplayer support). We'll need to make sure the game still runs with the existing two-player setup, but we might need to adapt the UI to reflect that. 
+
+Also, we need to merge missing AI rules: Build Barracks, Train Soldier, Attack (and also maybe the existing Build House, Train Villager, Assign Idle Villagers). The order matters: Build House, Build Barracks, Train Villager, Assign Idle Villagers, Train Soldier, Attack. The original (pre-refactor) had that order. The refactored code (aggressive_refactored_new_codebase) already includes some AI rules: Build House, Train Villager, Assign Idle Villagers. But it's missing Build Barracks, Train Soldier, Attack. Also note that the missing AI rules document includes Build Barracks, Train Soldier, Attack (and also includes an Attack rule that sends soldiers to attack when there are at least 3 soldiers). The minor_new_features_code also includes some of these AI rules? Actually, minor_new_features_code is a diff that seems to add those missing AI rules? Let's check: It contains Build Barracks and Train Soldier rules? In the diff, under the AI rules, we see: 
+ 
+  
+            {
+                name: "Build Barracks",
+                condition: () => {
+                    const barracks = state.entities.filter(e => e.owner === 'enemy' && e.type === CONFIG.ENTITIES.BARRACKS.type).length;
+                    return barracks === 0 && !state.aiMemory.buildingBarracks && state.enemyResources.wood >= 150;
+                },
+                ...
+            },
+            {
+                name: "Train Soldier",
+                condition: () => {
+                    const barracks = state.entities.find(e => e.owner === 'enemy' && e.type === CONFIG.ENTITIES.BARRACKS.type);
+                    return barracks && barracks.productionQueue.length < 2 && 
+                           state.enemyResources.food >= 60 && state.enemyResources.gold >= 20;
+                },
+                ...
+            }
+ 
+ 
+ 
+
+And also an Attack rule? In the missing_ai_rules document there is an Attack rule. In the minor_new_features_code, does it have Attack? Looking at the diff, after the AI rules, there is a checkWinCondition function that ends the game when one faction is eliminated, but not an explicit Attack rule. The Attack rule might have been removed in that branch? Actually, the diff shows that the AI.rules array includes the Build House, Build Barracks, Train Villager, Assign Idle Villagers, Train Soldier. It does not include an Attack rule. But the missing_ai_rules document includes Attack. And the user says: "I think you have removed the 'Attack' rule in last round, probably due to a misunderstanding... we need both rules." So we need to include the Attack rule from missing_ai_rules. The Attack rule in missing_ai_rules is: 
+ 
+  
+{
+    name: "Attack",
+    condition: () => {
+        const soldiers = state.entities.filter(e => e.owner === 'enemy' && e.type === 'Soldier' && !e.dead && e.state === 'IDLE').length;
+        return soldiers >= 3;
+    },
+    action: () => {
+        const soldiers = state.entities.filter(e => e.owner === 'enemy' && e.type === 'Soldier' && !e.dead && e.state === 'IDLE');
+        const players = state.entities.filter(e => e.owner === 'player' && !e.dead);
+        
+        if (soldiers.length > 0 && players.length > 0) {
+            const target = players.sort((a,b) => a.position.distanceTo(soldiers[0].position) - b.position.distanceTo(soldiers[0].position))[0];
+            soldiers.forEach(s => {
+                s.state = 'ATTACK';
+                s.targetEntity = target;
+            });
+        }
+    }
+}
+ 
+ 
+ 
+
+We need to incorporate this rule into the AI.rules array in the proper order. 
+
+Also, the minor_new_features_code includes some features: Pop warning, Pause button, Soldier retaliation (in Unit.takeDamage), Gather point visuals (flags and lines), Win/Lose condition (checkWinCondition). Also includes CSS animations for pop warning, etc. And includes a fix for the this-rebinding issue? Actually, the aggressive_refactored_new_codebase already had a fix? The user says: "In the new code base, I applied a fix (necessary to make the game run at all), mainly related to the infamous this-rebinding issue, present when using closure style class/singleton. Maybe there can be a better solution, but above is what is tested to work, I want to stabilize codebase first." So we must keep that fix. The aggressive_refactored_new_codebase is the one that we are using as base, and it should contain that fix. Let's verify: In aggressive_refactored_new_codebase, we see in GameLogic.findNearestBuilding: it uses console.log(this); //TODO: remove when debug finish. That's the fix? Actually, the fix is to use .bind(this) or arrow functions to preserve context. In the code, many functions use .bind(this)? Actually, in Unit.checkAutoReaction, there is a call to GameLogic.findNearestBuilding.bind(this). That is the fix. So that base includes that fix. Good. 
+
+Now, we need to merge the minor_new_features_code into that base. The minor_new_features_code is a diff that shows changes from some earlier version (likely v6.0a). We need to apply those changes to the base code, but careful because the base might have already some of these features? Let's check: In aggressive_refactored_new_codebase, does it have the pop warning? No, it doesn't. Does it have the pause button? No. Does it have soldier retaliation? The base's Unit.takeDamage does not have attacker param? Actually, the base has takeDamage(amount) without attacker. So we need to add attacker parameter and retaliate logic. Also gather point visuals are not present. Win/Lose condition is not present. So we need to merge those changes. 
+
+Also, note that the minor_new_features_code diff includes changes to CSS: pop warning, pause button, game over screen, etc. Also changes to HTML: added pause button, game-over screen. Also changes to JS: added pause logic, win/lose check, soldier retaliation, gather point visuals, and also some AI rules (Build Barracks, Train Soldier) and the checkWinCondition function. However, note that the minor_new_features_code includes some of the missing AI rules (Build Barracks, Train Soldier) but not Attack. So we'll need to add Attack as well. 
+
+Now, the new_web_ui_system_draft is a separate HTML file that includes a new UI overlay, with pages: Prepare screen, Stats screen, Modals (menu, diplomacy, tech tree). It includes its own CSS, SVG icons, and JavaScript logic to manage UI state. It's essentially a separate UI layer that sits on top of the game. The current base has a simpler UI: top resource bar, bottom control panel, selection info, actions grid, notifications, start screen. The new web UI draft includes a more complex top bar with civ status, menu buttons, bottom panel same? Actually, it has a similar bottom control panel. It also has a Prepare screen (for setting up players), Stats screen, and modals. It also includes a resource ticker simulation. However, the backend logic for many of these features is not implemented; it's mostly UI mockups. The draft includes a State object that manages UI state (page, civ, age, players, etc.) and some functions to switch pages, open modals, etc. It also has Prepare.renderPlayerList, Diplomatic.renderDiplomacy, UI.renderTechTree, etc. But the actual game logic (Game.start, Game.advanceAge, Game.research) are stubs. 
+
+Our task: "merge in both the new webUI system, the missing game AI rules, and the minor new features." For the new webUI system, "integrate it, but some 'features' present in the webUI does not yet have a corresponding backend/logic implementation in the base - that's okay, for this round only focus on the initial integration efforts. One example is that the webUI allow configuring number of players, but the base currently assume two player (we will tackle this once the merge is successful and stable, because it is a fairly major work/risky)." So we need to incorporate the new web UI into the base, but keep the existing game flow. That means we might need to replace the simple start screen with the new prepare screen, but we must adapt it so that it still starts the game with two players (player and enemy) as per the base's logic. The prepare screen allows adding/removing players, but we can ignore that for now; we can just show the screen with the default two players (the ones set in the UI state). However, the UI's State object has a players array with 3 players (You, Enemy 1, Enemy 2) by default. The base expects only two factions: 'player' and 'enemy'. So we need to adapt. Perhaps we can modify the UI's default state to have two players (player and enemy). Or we can keep three but ignore extra ones? That might cause issues. Better to adjust the UI's player list to match the base's expected setup. But the user said: "the base currently assume two player (we will tackle this once the merge is successful and stable)". So we need to make it work with two players. The new web UI draft currently initializes State.players with 3 players. We can change that to 2 players (player and enemy) to match. Also, we need to integrate the UI's state management with the existing game logic. The existing game logic uses a global state object (playerResources, enemyResources, etc.). The UI's state is separate. We need to connect them, e.g., when the game starts, we need to initialize the game's resources and entities based on the UI settings? But for now, we just need to integrate the UI as a layer on top, and have the start button call the existing GameLogic.initGame() (or window.startGame()). The UI's Game.start() currently calls UI.showPage('game-screen'), which hides the prepare screen and shows the game UI (resource bar, etc.). But in the base, the game UI is already there (resource bar, control panel) and the game starts with window.startGame() which hides start screen and calls GameLogic.initGame(). So we can adapt: we can replace the start screen with the prepare screen, and have the start button call a function that first hides the prepare screen, then calls GameLogic.initGame(), and maybe sets some flags. Also, we need to handle pause, menu, etc. 
+
+The new web UI draft includes a pause system (State.paused) and modals. The base already has a pause button (from minor features) that toggles state.isPaused. We need to unify these. The base's pause button is in the resource bar, and the new UI's pause might be in the menu. We could keep both or integrate. Better to harmonize: Use the base's pause logic but maybe show the pause menu when paused. The new UI draft has a menu modal with Resume, Save, Settings, Stats, Quit. The base doesn't have a pause menu. We could integrate that: when paused, show the menu modal. Or we could keep the base's pause button as a toggle and also have the menu accessible via a button. Let's plan. 
+
+We need to merge CSS as well. The base CSS and the new UI CSS share some variables (like --ui-bg, --ui-border, etc.) but have slight differences. The new UI draft uses similar variables. We should unify the styles: keep the base's overall theme but incorporate the new UI's extra styles for pages, modals, etc. We can merge the CSS by adding the new rules after the base's CSS, or incorporate them into a single style block. Ensure no conflicts. 
+
+Now, let's outline the steps: 
+
+    Start with aggressive_refactored_new_codebase (v6.1 branch b) as base.  
+
+    Merge missing AI rules: Add Build Barracks, Train Soldier, Attack to the AI.rules array in the correct order. The order specified: Build House, Build Barracks, Train Villager, Assign Idle Villagers, Train Soldier, Attack. The base already has Build House, Train Villager, Assign Idle Villagers. We need to insert Build Barracks after Build House, Train Soldier after Assign Idle Villagers, and Attack at the end. Also, we need to ensure the conditions use correct config references (e.g., CONFIG.ENTITIES.Barracks.type). The missing AI rules document uses 'Barracks' as string, but we need to use CONFIG.ENTITIES.BARRACKS.type (or CONFIG.ENTITIES.Barracks.type? In the base, the config uses keys: TownCenter, House, Barracks (capitalized? Actually, in the base, the keys are: Villager, Soldier, TownCenter, House, Barracks. The keys are exactly the type strings but with capital first letter? Wait: In base, CONFIG.ENTITIES has: Villager, Soldier, TownCenter, House, Barracks. So to reference, we can do CONFIG.ENTITIES.Barracks.type? But the key is 'Barracks', so yes CONFIG.ENTITIES.Barracks.type. However, the code often uses CONFIG.ENTITIES[type] where type is string. The keys are exactly the type strings? Check: In Unit constructor, they do const stats = CONFIG.ENTITIES[type] || { hp: 100 }; and they pass type as string (e.g., 'Villager'). So the keys must match exactly: Villager, Soldier, TownCenter, House, Barracks. So we can reference CONFIG.ENTITIES.Barracks.type. So we'll use that.  
+
+    Merge minor new features:  
+         Add pop warning CSS (pulse-red) and apply in UI.update when pop is full.
+         Add pause button in resource bar (CSS and HTML). The base's resource bar has a placeholder? Actually, base resource bar does not have pause button. We'll add it.
+         Add pause logic: state.isPaused, toggle on button, skip updates in animate loop, skip AI tick if paused.
+         Add soldier retaliation: Modify Unit.takeDamage(amount, attacker = null) and add retaliation logic.
+         Add gather point visuals: In Building class, add gatherPointPos, gatherPointFlag, gatherPointLine; implement showGatherPointVisuals; update on right-click on building; update on selection.
+         Add win/lose condition: Implement checkWinCondition function and call it periodically (setInterval). Also add game over screen HTML/CSS.
+         Also, the minor features include a fix for the selection of idle villagers? Already there? The base already has selectIdleVillagers via '.' key, but the minor features also includes it? Actually, the minor features diff includes "V6.1: Restore '.' select idle". It seems the base already has it? Let's check base: In the base, there is a function selectAllIdleVillagers() and it's called on '.' key. So it's there. The minor features might have just fixed something, but we can ignore if already present.
+         The minor features also include some changes to AI rules (Build Barracks, Train Soldier) which we already will incorporate from missing_ai_rules, but we can take from either; the missing_ai_rules includes both plus Attack. So we'll use missing_ai_rules.
+         
+
+    Additionally, minor features includes changes to GameLogic.initGame: calls setInterval(checkWinCondition, 1000). We'll need to add that. 
+
+    Also, the minor features includes changes to the Building class: showGatherPointVisuals, update with flag and line. We'll add those. 
+
+    Also, minor features includes changes to Input: handling right-click on building to set gather point. The base already has some of that? In the base, in the contextmenu handler, for buildings, if groundPoint, set gatherPointPos and createClickMarker. That's already present? Let's check base: In aggressive_refactored_new_codebase, in contextmenu handler, there is:  
+     
+      
+
+if (unit instanceof Building) {
+    if (groundPoint) {
+        unit.gatherPointPos = groundPoint;
+        Effects.createClickMarker(groundPoint);
+    }
+}
+ 
+ 
+ 
+
+So that's already there. The minor features add visual flag/line, which we need to add. Also, they add immediate visual update when set. 
+
+Also, minor features includes in Unit.takeDamage, the addition of attacker param, and soldiers retaliate. We'll incorporate that. 
+
+Also, minor features includes in Building.update, the code that uses this.gatherPointPos to move spawned units. That's already present? The base has that? Yes, base has: if (this.gatherPointPos) { spawnedUnit.state = 'MOVE'; spawnedUnit.targetPos = this.gatherPointPos; } So that's there. 
+
+Also, minor features includes CSS for pop warning, game over screen, etc. 
+
+Also, minor features includes in UI.update, the pop warning toggle. We'll add. 
+
+Also, minor features includes in Input, pause button event listener. We'll add. 
+
+Also, minor features includes in GameLogic.initGame, call checkWinCondition interval. We'll add. 
+
+Also, minor features includes in animate loop, pause check. We'll add. 
+
+Also, minor features includes in AI.tick, check state.isPaused. We'll add. 
+
+Also, minor features includes in UI.updateUISelection? Not needed. 
+
+Also, minor features includes in Building.setSelected? Actually, they added a method to show gather point visuals when selected. We'll add that. 
+
+Also, minor features includes in AssetFactory.createFlag? Actually, the minor features code snippet shows a new method AssetFactory.createFlag(color) that creates a flag and line? Wait, the snippet shows a method createFlag inside AssetFactory. We'll need to add that method to AssetFactory. The base's AssetFactory only has create method. We'll add createFlag. 
+
+Also, minor features includes changes to CSS: pop-warning, #game-over-screen, #pause-btn, etc. 
+
+Also, minor features includes in HTML: added pause button, game-over screen. 
+
+Also, minor features includes in JS: the checkWinCondition and endGame functions. We'll add.  
+
+Merge new web UI system: 
+
+The new web UI is a separate HTML file that contains its own structure and scripts. We need to integrate its UI elements (Prepare screen, Stats screen, Modals, SVG definitions) into the base HTML, and incorporate its JavaScript logic for UI navigation, while preserving the existing game logic. 
+
+The new web UI draft uses a separate UI layer with pages. The base currently has a start screen and then the game UI overlay. We need to replace the start screen with the prepare screen, and add the stats screen and modals. 
+
+Steps for integration: 
+
+     Merge CSS: combine the base's CSS with the new UI's CSS. Ensure variables are consistent. The base uses :root with --ui-bg, --ui-border, --ui-text, --accent, --danger. The new UI uses similar but also adds --modal-overlay, --bg-dark, --bg-panel, --accent-hover, etc. We can add those new variables to the base's :root. Also, the new UI has many CSS rules for full-page, modals, tables, etc. We'll append them after the base's CSS, making sure not to override necessary base styles.
+     Merge HTML: 
+         Keep the game-container, selection-box, health-bar-container, ui-layer (with resource-bar, control-panel, etc.). The new UI also has these same elements but with modifications: resource-bar has extra elements (civ-status-area, top-menu). We'll replace the base's resource-bar with the new UI's resource-bar (which includes the extra center and right sections). But we also need to integrate the base's pause button? The new UI doesn't have a pause button in the resource-bar; it has a menu button that opens a menu modal. The base's pause button is separate. We could keep the base's pause button inside the resource-bar as well, or rely on the menu modal for pause/resume. The minor features already added a pause button; we could keep it. Alternatively, we could make the menu modal accessible via a button and have a pause button elsewhere. To be safe, we can keep the base's pause button (as it's already integrated with minor features). But we need to harmonize: The new UI's resource-bar has a top-menu section with diplomacy and menu buttons. We could add the pause button there instead of a separate button. Let's decide: The base's pause button is added in the resource-bar HTML as <button id="pause-btn">Pause</button>. The new UI's resource-bar does not have that. We could incorporate it into the top-menu section, e.g., as a pause button next to the menu button. Or we can keep the base's simple pause button in the resource-bar as is. But the new UI's resource-bar structure is different; we need to adapt. The base's resource-bar currently is:
+         
+     
+
+ 
+  
+<div id="resource-bar" class="interactive">
+    <div class="res-item"><span class="res-icon">🪵</span> <span id="res-wood">200</span></div>
+    ... population ...
+</div>
+ 
+ 
+ 
+
+The new UI's resource-bar is: 
+ 
+  
+<div id="resource-bar" class="interactive">
+    <!-- Resources (Emojis preserved) -->
+    <div class="res-item">...</div>
+    ...
+    <!-- Center: Civ & Age Banner -->
+    <div id="civ-status-area" class="interactive" ...>...</div>
+    <!-- Right: Menu & Diplomacy -->
+    <div id="top-menu">...</div>
+</div>
+ 
+ 
+ 
+
+So the new UI adds center and right sections. We'll adopt this structure, but we need to keep the existing resources elements. We'll merge them: keep the resources items, add the civ-status-area and top-menu. Also, we need to add the pause button. The pause button could be placed in the top-menu section, maybe as a pause/play icon button. Or we could keep the base's pause button in the resource-bar as a separate element, but that might clutter. I think it's better to integrate pause into the top-menu: add a pause button there. The base's pause button currently toggles text "Pause"/"Resume". We could replace that with an icon and have it open the menu modal with "Resume" option. But we want simple toggle. Let's keep the base's pause button as a separate element, but placed appropriately. The minor features added it as <button id="pause-btn">Pause</button> inside resource-bar. We can keep that but perhaps move it to the right side, after the population. The new UI already has top-menu on the right. So we can include the pause button as part of that right section. We'll modify: add a pause button inside #top-menu, maybe as an extra button. The top-menu currently has diplomacy and menu buttons. We'll add a pause button there. Or we can replace the menu button with pause? But menu button is for opening the menu modal; we need that too. So we can have three buttons: pause, diplomacy, menu. Or combine pause with menu? Let's decide: The minor features pause button toggles pause directly. The new UI's menu modal has a "Resume" button when paused. So we can have a pause button that when clicked, if paused, resumes; if not, it could open the menu modal? Actually, typical games have a pause button that opens the menu modal. So we could make the pause button open the menu modal, and the menu modal has Resume, Save, etc. The base's pause button currently directly toggles pause and changes button text. That's simpler but less consistent with the new UI. Since we are merging, we can keep the base's pause behavior (direct toggle) and also have the menu modal accessible via a separate button. We can put both in the top-menu: a pause toggle button (icon) and a menu button (gear). That seems fine. We'll add a pause button (maybe using ⏸/▶ icons) in #top-menu. 
+
+     
+
+    For the civ-status-area: It shows civ name and age. The base does not have ages or multiple civs. For now, we can show a fixed civ name (e.g., "Kingdom") and maybe "Age 1". The new UI's draft includes "Stone Age" and an "Advance Age" button. That's not implemented in backend. We can hide the "Advance Age" button or leave it as non-functional for now. We'll just display "Age I" or something. 
+     
+
+    For the bottom control panel, the base and new UI are very similar. The new UI's bottom panel seems identical. So we can keep the base's bottom panel. 
+     
+
+    The new UI includes a selection-box and notification-area which are same. 
+     
+
+    The new UI includes an SVG sprite definitions block. We need to add that. 
+     
+
+    The new UI includes pages: Prepare screen, Stats screen. We need to add those HTML blocks. The base has a start-screen. We'll replace the start-screen with the prepare-screen? The prepare-screen includes player list and settings. The base's start-screen is simple. We'll incorporate the prepare-screen as the initial screen. However, we must ensure that the start button calls the game initialization. The new UI's prepare-screen has a "Start Game" button that calls Game.start(). That function in the draft just shows the game-screen. We need to adapt it to call the existing GameLogic.initGame() and also hide the prepare screen. Also, we need to handle the fact that the game UI is already present in the HTML (ui-layer) but hidden behind the prepare screen. So we can structure: The prepare screen is a full-page overlay. When game starts, we hide it, and the game UI becomes visible (since it's underneath). The base's start-screen works similarly. 
+     
+
+    The new UI includes a stats-screen (Victory). The base doesn't have that. We'll add it. The stats-screen currently shows some dummy data. We can leave it as is for now, but we need to connect it to the actual win condition? The minor features already have a checkWinCondition that shows a game-over screen. That game-over screen is a simple overlay with VICTORY/DEFEAT and a restart button. The new UI's stats-screen is more elaborate with charts and tables. We could either replace the simple game-over screen with the stats-screen upon win/lose, or have both. The user didn't specify. Since we are merging the new web UI system, we might want to use the stats-screen as the end-game screen. However, the minor features' game-over screen is already integrated. We could adapt: when endGame is called, instead of showing the simple game-over screen, we show the stats-screen and populate it with actual data? But that would require more backend integration. For now, we could keep the simple game-over screen from minor features (since it's already connected to checkWinCondition) and also have the stats-screen accessible via menu. The new UI draft has a "View Statistics" option in the menu modal. That would open the stats-screen. So we can keep both: the simple game-over screen appears automatically on win/lose, and the stats-screen can be opened manually from the menu. That seems acceptable. 
+     
+
+    The new UI includes modals: menu-modal, diplomacy-modal, tech-modal. We need to add those HTML blocks. The base has none. We'll add them. Their JavaScript logic is in the UI object: UI.openModal, UI.closeModals, etc. Also, there are objects Prepare, Diplomatic, Game (with start, advanceAge, research). We'll need to integrate those with the existing codebase. But we must be careful not to break the existing game logic. The new UI's JavaScript is separate and likely uses its own State object. We need to merge it with the existing global state (state) and existing functions. For example, the new UI's Game.start() just changes UI page. We want it to actually start the game: call GameLogic.initGame(). Also, we need to ensure that when the game starts, the UI layer shows the resource bar and control panel, and the game loop runs. Currently, the base's window.startGame hides the start screen and calls initGame. So we can adapt: The prepare screen's "Start Game" button will call a function that first maybe processes settings? But for now, we can just call the existing GameLogic.initGame() and also hide the prepare screen. We'll need to ensure that the UI's State.page is set appropriately. We can simply hide the prepare screen (by setting display:none) and let the game UI (which is underneath) become visible. The base's UI-layer is already there and visible after start-screen is hidden. So we can keep that. 
+     
+
+    The new UI's UI.init() includes a resource ticker that increments wood and food every second. That's not connected to actual game resources. We should disable or adapt that. The base already updates resources via UI.update(). We don't want a mock ticker. So we can remove that ticker from UI.init(). We'll just not include that. 
+     
+
+    The new UI's Prepare.renderPlayerList uses State.players. We can initialize State.players with two players: player and enemy, matching the base. We'll adjust the default players list to have only two. Also, we need to ensure that the Prepare screen doesn't allow adding/removing players that would break the game. We can disable the add/remove buttons for now, or keep them but they won't affect the actual game because the game logic doesn't use that list. We can leave them as UI only; when start is clicked, we ignore the extra players. That's okay for initial integration. 
+     
+
+    The new UI's Diplomatic.renderDiplomacy uses State.diplomacy. That's not connected to game logic. We can leave it as a stub. 
+     
+
+    The new UI's UI.renderTechTree uses State.researched and State.ageIndex. Not connected. We can leave as stub. 
+     
+
+    The new UI's UI.openModal sets State.paused = true. We have state.isPaused from minor features. We can unify: use state.isPaused for pause. So we can change UI.openModal to set state.isPaused = true, and UI.closeModals to set state.isPaused = false if page is game-screen. Also, we need to ensure the game loop respects state.isPaused (already does). So we can integrate. 
+     
+
+    The new UI's Game.resume just closes modals. That can call UI.closeModals(). 
+     
+
+    The new UI's Game.advanceAge would increment age; we can leave as non-functional for now. 
+     
+
+    The new UI's Game.research would add tech to State.researched; we can leave. 
+     
+
+    The new UI's UI.notify is similar to base's UI.notify. We can keep base's UI.notify and maybe reuse. 
+     
+
+    The new UI's UI.showPage sets display of full-page elements. We need to add the prepare and stats screens to the HTML, and we can use UI.showPage to switch between them. However, the base also uses a start-screen and game-over-screen. We can treat them as full-pages as well. We'll unify: Have a base overlay container that includes all full-pages: prepare-screen, stats-screen, game-over-screen. The game UI (resource-bar, control-panel) is separate. When in game, the full-pages are hidden. When showing a page, we hide the game UI? Actually, the game UI is behind, but we might want to hide it when showing a full-page? In the draft, the full-pages are fixed and cover the entire screen, with z-index high, and the game UI is underneath. That's fine. 
+     
+
+    The new UI's CSS includes .full-page.active { display: flex; }. So we can add that. 
+     
+
+    The new UI's CSS includes many styles for tables, modals, etc. We'll add them. 
+     
+
+ 
+
+Harmonize CSS: The base uses variables like --ui-bg, --ui-border, --ui-text, --accent, --danger. The new UI uses similar plus additional. We'll merge by adding the new variables to :root, and appending the new styles. We must ensure no conflicts; for instance, the base defines .toast animation, new UI defines similar. We can keep the base's toast; new UI's toast is similar but maybe different. We'll use base's toast.  
+
+JavaScript Merging: We'll need to combine the scripts from the new UI draft with the base's script. The base's script is a single module. The new UI draft includes a script at the end with Data & Config, State, UI System, Prepare Screen System, Diplomacy System, Game Logic (Game object). This is not a module; it's plain JavaScript. The base uses ES modules (importmap). We can either convert the new UI code to be part of the module, or keep it as a separate script tag. Since the base uses type="module", we can include the new UI code inside that module, but it's plain JavaScript with var/let and no imports. That's okay; we can put it inside the module as well. But we need to be careful about variable scope. The new UI code defines global variables (AGES, CIVS, State, UI, Prepare, Diplomatic, Game). If we put that inside the module, they will be scoped to the module and accessible within. The base's script also uses global variables (CONFIG, state, GameLogic, etc.) which are also module-scoped. So they can coexist. However, we must avoid name conflicts. The base uses state for game state; the new UI uses State (capital S) for UI state. That's okay. The base uses GameLogic; the new UI uses Game. That's fine. So we can put the new UI code at the end of the base's script, inside the module. 
+
+But the new UI code includes calls to functions like UI.init() at the end, which initializes the UI. We need to call that after everything is defined, but also after the base's code is ready. We'll put it after all base code. 
+
+Also, the new UI code references DOM elements like document.getElementById('prepare-screen'), etc., which we'll have added. 
+
+We must also ensure that the base's window.startGame is replaced or integrated. The base's start-game function hides the start-screen and calls Input.init() and GameLogic.initGame(). In the new UI, the prepare-screen has a start button that calls Game.start(). We can adapt: have the button call a function that does both: maybe hide the prepare screen, then call the base's initialization. We can define a new function that combines. 
+
+Since the base's start screen is being replaced by the prepare screen, we can remove the base's start-screen HTML and use the prepare-screen instead. But we need to keep the game-over-screen from minor features. That can be added as another full-page. 
+
+So we'll remove the base's <div id="start-screen"> and replace with the new UI's prepare-screen and stats-screen and modals. 
+
+Also, the base's window.startGame is called from the start-screen's button. In the new UI, the button calls Game.start(). We can set Game.start to do the necessary initialization. We'll define: 
+javascript
+ 
+  
+window.Game.start = function() {
+    // Hide prepare screen
+    UI.showPage('game-screen'); // This hides full-pages, showing game UI
+    // Initialize game
+    Input.init();
+    GameLogic.initGame();
+};
+ 
+ 
+ 
+
+But note: UI.showPage from new UI expects a pageId like 'game-screen'. However, in the base, there is no 'game-screen' full-page; the game is just the UI layer and canvas. In the new UI draft, they have a #game-screen full-page? Actually, the draft doesn't have a game-screen full-page; the game is always visible behind the overlays. In the draft's UI.showPage, it hides all full-pages and sets State.page. The game UI is not a full-page; it's always there. So we can implement UI.showPage to hide all full-pages (prepare, stats, game-over) and show the game UI (which is always there). That's fine. The base's start-screen is a full-page; we can treat it as such. So we'll have full-pages: prepare-screen, stats-screen, game-over-screen. The game UI (resource-bar, control-panel) is not a full-page; it's part of the UI layer. So when we start game, we hide prepare-screen, and the game UI becomes visible. The base's UI-layer is always there but covered by the full-page. So we can implement UI.showPage to set active full-page accordingly. 
+
+We'll need to adjust the new UI's UI.showPage: it currently toggles classes on .full-page elements. We'll keep that. 
+
+Also, the new UI's UI.init includes a resource ticker that we should disable. We'll comment out or remove that part. 
+
+Also, the new UI's Prepare.renderPlayerList expects State.players. We'll set State.players to default with two players. The base's logic uses 'player' and 'enemy' owners. So we can set: 
+javascript
+ 
+  
+
+    State.players = [
+        { id: 1, name: 'You', civ: 'babylon', color: '#4a90e2', type: 'human' },
+        { id: 2, name: 'Enemy', civ: 'egypt', color: '#e24a4a', type: 'ai' }
+    ];
+     
+     
+     
+
+    Also, we need to ensure that the base's game logic doesn't rely on State.players. 
+
+    Also, the new UI's UI.updateCivDisplay sets civ icon and age. We can set civ to a default (maybe 'kingdom') and age to 'Stone Age'. But the icon expects SVG symbols; we need to ensure the civ icon is defined. The new UI's SVG defines civ-babylon, civ-egypt, etc. We can pick one for the player, say civ-egypt? Actually, the base's player is blue, enemy is red. The new UI's civ colors are separate. We'll just set civ to 'egypt' or something. Or we can remove the civ icon for now, or use a generic symbol. Since it's just visual, we can keep. 
+
+    The new UI's top-menu includes a diplomacy button that opens diplomacy-modal. We'll add that. 
+
+    The new UI's menu-modal includes options like Resume, Save, Settings, View Statistics, Quit to Menu. We need to connect "Resume" to resume game (close modals and unpause if paused). "Save" and "Settings" can just show a notification for now. "View Statistics" can call UI.showPage('stats-screen'). "Quit to Menu" can call UI.showPage('prepare-screen') and maybe reset game? But the base doesn't have a reset function. We could call location.reload() or just show prepare screen. For simplicity, we can just show prepare screen and maybe stop game? But better to just show prepare screen and then if start again, it will start new game? The base doesn't support restart properly. The minor features added a restart button on game-over screen that does location.reload(). We can use that. So "Quit to Menu" could just reload the page, or show prepare screen and then reset game. For now, we can just call location.reload() to be safe. 
+
+    Also, the new UI's tech-modal: we can leave as stub. 
+
+    Also, the new UI's Diplomatic modal: we can leave as stub.  
+
+    Ensure the order of AI rules: Build House, Build Barracks, Train Villager, Assign Idle Villagers, Train Soldier, Attack. In the base, the existing order is: Build House, Train Villager, Assign Idle Villagers. We'll insert Build Barracks after Build House, Train Soldier after Assign Idle Villagers, and Attack after Train Soldier. 
+
+    Check the existing code: In aggressive_refactored_new_codebase, AI.rules is an array. We'll reorder.  
+
+    Also, we need to add the Attack rule from missing_ai_rules. Ensure the condition uses correct type references (Soldier, etc.).  
+
+    Also, we need to ensure that the minor feature's checkWinCondition is added. The base already has a checkWinCondition? Not in the base. We'll add.  
+
+    Also, the minor feature's endGame function shows a game-over screen. We'll add the game-over-screen HTML and CSS.  
+
+    Also, the minor feature's pop warning: add CSS class and toggle in UI.update.  
+
+    Also, the minor feature's pause button: add HTML, CSS, JS listener.  
+
+    Also, the minor feature's gather point visuals: add AssetFactory.createFlag, modify Building class to show/hide visuals, add line and flag, and update on selection and on set gather point.  
+
+    Also, the minor feature's soldier retaliation: modify Unit.takeDamage to accept attacker, and soldiers retaliate.  
+
+Now, we need to produce the final merged HTML file. This will be large; we must carefully combine all parts. 
+
+We'll start from the aggressive_refactored_new_codebase and make modifications. 
+
+Let's list all modifications needed: 
+
+HTML modifications: 
+
+     Add SVG sprite definitions block.
+     Replace start-screen with prepare-screen (from new UI). But keep game-over-screen from minor features. We'll also add stats-screen and modals (menu-modal, diplomacy-modal, tech-modal) from new UI.
+     In resource-bar, replace the base's resource-bar with the new UI's version, but include the base's resources elements and also add civ-status-area and top-menu, and add a pause button within top-menu.
+     Add game-over-screen HTML (if not already present? base has a start-screen, we are replacing it with prepare-screen; we need to add game-over-screen from minor features). The minor features added a game-over-screen with id="game-over-screen". We'll include that.
+     Add stats-screen from new UI.
+     Add modals: menu-modal, diplomacy-modal, tech-modal from new UI.
+     Ensure selection-box, health-bar-container, ui-layer, control-panel, actions-grid, etc. remain as is.
+     
+
+CSS modifications: 
+
+     Keep base's :root and base styles.
+     Add new CSS variables from new UI (if not already present). We'll add --modal-overlay, --bg-dark, --bg-panel, --accent-hover, etc.
+     Add new UI CSS rules: for full-page, prepare-screen, stats-screen, modals, tables, tech tree, etc.
+     Add minor features CSS: pop-warning, #pause-btn, #game-over-screen.
+     Ensure no conflicts; e.g., the new UI's .toast might override base's .toast; we can keep base's .toast or use the new UI's. Base's .toast has animation fadeOut; new UI's has similar but maybe different. We can keep base's as it's fine.
+     
+
+JavaScript modifications: 
+
+     
+
+    Keep base's script (module) with CONFIG, state, classes, etc. 
+     
+
+    Merge missing AI rules into AI.rules array in correct order. 
+     
+
+    Add missing functions: checkWinCondition, endGame (from minor features). 
+     
+
+    Add AssetFactory.createFlag (from minor features). 
+     
+
+    Modify Building class: add showGatherPointVisuals, add flag and line properties, update setSelected, update to call showGatherPointVisuals when selected. 
+     
+
+    Modify Unit.takeDamage to accept attacker and retaliate. 
+     
+
+    Modify UI.update to toggle pop warning. 
+     
+
+    Add pause button event listener to toggle state.isPaused and update button text. 
+     
+
+    In animate loop, add pause check: if state.isPaused, just render and return. 
+     
+
+    In AI.tick, check state.isPaused. 
+     
+
+    In Input, add handling for pause button? Already via button click. 
+     
+
+    In GameLogic.initGame, add setInterval(checkWinCondition, 1000). Also, ensure we initialize enemyAI properly (the base already does). 
+     
+
+    Integrate new UI code: At the end of the script, add the data structures (AGES, CIVS, State, etc.), UI system, Prepare system, Diplomatic system, Game object. But we must adapt to work with the base's game state. 
+         
+
+        We'll define State.players with two players as described. 
+         
+
+        We'll define UI.openModal to set state.isPaused = true (since game should pause when modal opens). We'll modify UI.closeModals to set state.isPaused = false if State.page is 'game-screen'? But we might want the game to pause whenever any modal is open. The base's pause system uses state.isPaused. So we can unify: When a modal opens, set state.isPaused = true; when closed, set state.isPaused = false (if not in other page). However, if we open the stats-screen via menu, that's a full-page, not a modal. We'll handle separately. 
+         
+
+        The new UI's UI.showPage sets State.page and hides/shows full-pages. We'll also ensure that when showing a full-page (like prepare-screen or stats-screen), the game is paused? The base's game loop runs unless state.isPaused is true. We could set state.isPaused = true when not in game. In UI.showPage, if page is not 'game-screen' (or whatever represents the game), we pause. We can define that when page is 'game-screen' (i.e., no full-page active), we unpause; otherwise pause. However, the base's pause is separate. We can integrate: when a full-page is shown, we set state.isPaused = true; when hidden (i.e., back to game), set state.isPaused = false. That makes sense. But note: the game-over-screen is a full-page; we already have endGame which sets state.gameOver and state.isPaused true. We'll keep that. For stats-screen, if opened from menu, we should pause. So we'll modify UI.showPage to set state.isPaused = false when page is 'game-screen' (i.e., hiding all full-pages), and true otherwise. But careful: the game might already be paused manually. We can respect manual pause: if user manually paused, then we shouldn't unpause automatically? Possibly we want to maintain manual pause state. Simpler: when a modal or full-page is opened, we pause the game (set state.isPaused = true). When closed, we resume only if it was paused only due to the overlay. But to avoid complexity, we can just let the game pause automatically when overlay opens, and when overlay closes, we resume. That's typical. But the base's pause button toggles state.isPaused; if we open a menu, we set state.isPaused = true; when we close menu, we set state.isPaused = false regardless of previous state. That might be fine for now. 
+         
+
+     However, we need to consider the scenario where user manually pauses, then opens menu. The game is already paused. Closing menu would unpause even if user wanted it paused? That's minor. 
+
+     Let's implement: In UI.openModal, set state.isPaused = true. In UI.closeModals, set state.isPaused = false if State.page is 'game-screen'? But we don't have a clear representation of 'game-screen'. We can define that when there is no active full-page (i.e., all full-pages are hidden), we are in game. We can check if any full-page is active. In UI.showPage, we set the active full-page. We can add a flag: when showing a full-page, we set state.isPaused = true; when hiding (i.e., UI.showPage(null) or something), we set state.isPaused = false. But the current UI.showPage takes a pageId and sets that page active. It doesn't have a "hide all" option. In the draft, they have UI.showPage('game-screen') but there is no such element; they just hide all full-pages. Actually, in the draft, they have: document.querySelectorAll('.full-page').forEach(p => p.classList.remove('active')); then document.getElementById(pageId).classList.add('active');. So if pageId is 'game-screen', which doesn't exist as a full-page, they might have intended to hide all full-pages. But in the draft, they call UI.showPage('game-screen') in Game.start. But there is no element with id 'game-screen'. That would cause error. So we need to adapt: We'll create a dummy or just not add a game-screen full-page. Instead, we can define that when pageId is 'game', we hide all full-pages. We'll modify UI.showPage to handle that: if pageId is 'game', we hide all full-pages and set State.page = 'game'. If pageId is something else, we show that full-page. 
+
+     Alternatively, we can keep the base's start-screen and just rename it to prepare-screen? But the new UI's prepare-screen is more complex. We'll use the new UI's prepare-screen as a full-page. And we'll have stats-screen as a full-page. And we'll have game-over-screen as a full-page. So we can have three full-pages. When we want to show the game, we hide all full-pages. So we can implement UI.showPage('game') to hide all full-pages and set State.page = 'game'. We'll adapt the new UI's code accordingly. 
+
+     So in UI.showPage, we'll do: 
+    javascript
+     
+      
+
+UI.showPage = (pageId) => {
+    document.querySelectorAll('.full-page').forEach(p => p.classList.remove('active'));
+    if (pageId === 'game') {
+        State.page = 'game';
+        state.isPaused = false; // unpause when in game
+    } else {
+        const page = document.getElementById(pageId);
+        if (page) {
+            page.classList.add('active');
+            State.page = pageId;
+            state.isPaused = true; // pause when in menu/stats
+        }
+    }
+}
+ 
+ 
+ 
+
+ However, note: the game-over-screen should also pause (already set in endGame). But we can still set pause true in UI.showPage. 
+
+ Also, the new UI's UI.openModal opens a modal (overlay) and sets State.paused = true. We'll change that to set state.isPaused = true. And UI.closeModals sets state.isPaused = false if State.page is 'game'. But we can also rely on UI.showPage to handle pause when full-pages are shown; modals are separate. Actually, modals are overlays that sit on top of the game. When a modal is open, the game should be paused. So we can set state.isPaused = true when opening a modal, and false when closing. But we need to consider that multiple modals might be stacked? Not in this design. We'll just set state.isPaused = true on open, false on close. However, if a full-page is already shown (like stats-screen), modals shouldn't be opened? Probably not. We'll ignore. 
+
+ To avoid conflicts, we can have a simple flag: state.isPaused is the master pause. When any overlay (full-page or modal) is shown, we set state.isPaused = true. When all overlays are hidden, we set state.isPaused = false. We can maintain a count of open overlays. But simpler: We'll just set state.isPaused = true whenever we show a full-page or open a modal, and set it false when we hide the last one. We'll have a variable overlayCount? Let's implement: In UI.showPage('game'), we set overlayCount to 0 and state.isPaused = false. In UI.showPage(other), we set overlayCount = 1 (since one full-page) and state.isPaused = true. In UI.openModal, we increment overlayCount and set state.isPaused = true. In UI.closeModals, we decrement overlayCount and if overlayCount <= 0, set state.isPaused = false. But careful: modals are independent of full-pages. The new UI's modal is separate; they don't use full-page. So we can treat modals as overlays. We'll create a variable let overlayCount = 0;. In UI.showPage, if pageId is 'game', overlayCount = 0; else overlayCount = 1 (since one full-page is active). But what if there is already a modal open when switching to game? That shouldn't happen. We'll assume modals are closed before switching pages. For simplicity, we'll not implement a count; we'll just have a boolean flag that indicates whether any UI element that pauses the game is open. We can use a variable state.uiOverlayOpen or reuse state.isPaused directly. But we also have manual pause button that toggles state.isPaused. We need to allow both. Maybe we separate: state.isPaused is the game's pause state, and we have state.overlayPaused to indicate that an overlay is forcing a pause. Then in animate, we pause if either state.isPaused or state.overlayPaused is true. That way manual pause can be toggled independently, and overlays force pause. That seems robust. 
+
+ Let's implement: 
+
+     Add state.overlayPaused = false; to initial state.
+     In animate loop: if (state.isPaused || state.overlayPaused) { ... return; }
+     In UI.showPage: if showing a full-page (like prepare, stats, game-over), set state.overlayPaused = true. If hiding all (game), set state.overlayPaused = false.
+     In UI.openModal: set state.overlayPaused = true.
+     In UI.closeModals: set state.overlayPaused = false.
+     In pause button toggle: toggle state.isPaused only.
+     
+
+ That way, overlays force pause, manual pause also pauses, and both can be true. 
+
+ We'll implement accordingly. 
+
+     
+
+    Also, the new UI's Game.resume should close modals and set overlayPaused false? Actually, Game.resume currently calls UI.closeModals. That will set overlayPaused false if we add that logic. Good. 
+     
+
+    The new UI's Game.start should call UI.showPage('game') and also initialize game. 
+     
+
+    The new UI's UI.init currently starts a resource ticker; we'll remove that. 
+     
+
+    The new UI's Prepare.addPlayer, etc., modify State.players; we can keep them as is, but they won't affect game logic. We might disable the add/remove buttons by removing event handlers or just leave them. 
+     
+
+    The new UI's Diplomatic.sendTribute modifies State.diplomacy; not used. 
+     
+
+    The new UI's UI.renderTechTree uses State.researched; not used. 
+     
+
+    The new UI's UI.updateCivDisplay sets civ and age; we can call that when needed? Not currently. 
+     
+
+    We need to call UI.init() at some point. We'll call it after the base code is loaded, maybe at the end of the module, to initialize the UI state (render player list, etc.). But UI.init() includes the resource ticker; we'll remove that. We'll replace UI.init with a simpler version that just renders player list and diplomacy? Actually, the new UI's UI.init calls Prepare.renderPlayerList() and Diplomatic.renderDiplomacy(). We can keep that. Also, it sets up an interval for resources; we'll remove that. 
+     
+
+ So we'll define: 
+javascript
+ 
+  
+const UI = {
+    init: () => {
+        Prepare.renderPlayerList();
+        Diplomatic.renderDiplomacy();
+        UI.renderTechTree();
+        // No resource ticker
+    },
+    // ... other methods from new UI, adapted
+};
+ 
+ 
+ 
+
+ And we'll add the overlayPaused logic to UI.showPage, UI.openModal, UI.closeModals. 
+
+ Also, we need to define the overlayPaused variable in the global state? It's part of the game's state, which is in the base's state object. But the new UI code uses State for UI state, not state. We'll add overlayPaused to the base's state object. But we need to access it from the UI module. Since both are in the same module scope, we can use the base's state directly. However, the new UI code uses its own State variable. We can either merge them or keep separate. It's easier to keep separate: state for game engine, State for UI. But we need to communicate between them, e.g., pause. We can reference state from the UI functions. We'll just use state.overlayPaused and set it appropriately. 
+
+ So we'll declare state.overlayPaused = false; in the base's state initialization. 
+
+ In UI.showPage: if pageId === 'game', state.overlayPaused = false; else state.overlayPaused = true. 
+
+ In UI.openModal: state.overlayPaused = true. 
+
+ In UI.closeModals: state.overlayPaused = false. 
+
+ In animate loop: if (state.isPaused || state.overlayPaused) { ... return; } 
+
+ Also, in AI.tick, we need to check state.overlayPaused as well? Probably yes. 
+
+ Also, in the pause button listener, we toggle state.isPaused. 
+
+ Also, the minor features already have a pause button listener that toggles state.isPaused and updates button text. We'll keep that. 
+
+ Now, we need to ensure the base's Input.init is called when starting the game. In the new UI's Game.start, we will call Input.init() and GameLogic.initGame(). The base's Input.init attaches event listeners. It should be called once. The base currently calls Input.init in window.startGame. We'll call it in Game.start. 
+
+ Also, the base's GameLogic.initGame calls animate() and starts AI tick. We'll call that after showing game screen. 
+
+ The base's animate loop already handles pause (if state.isPaused). We'll modify it to also check state.overlayPaused. 
+
+ Also, the base's AI.tick checks state.isPlaying but not pause. We'll add a check for pause (state.isPaused || state.overlayPaused). In the minor features, AI.tick checks state.isPaused. We'll extend. 
+
+ Also, the base's checkWinCondition should also respect pause? Probably it can run even when paused, but it's fine. 
+
+ Now, we need to incorporate the missing AI rules. We'll modify the AI.rules array. 
+
+ In aggressive_refactored_new_codebase, the AI.rules is defined as: 
+javascript
+ 
+  
+const AI = {
+    rules: [
+        {
+            name: "Build House",
+            condition: () => { ... },
+            action: () => { ... }
+        },
+        {
+            name: "Train Villager",
+            condition: () => { ... },
+            action: () => { ... }
+        },
+        {
+            name: "Assign Idle Villagers",
+            condition: () => { ... },
+            action: () => { ... }
+        }
+    ],
+    tick: function() { ... }
+};
+ 
+ 
+ 
+
+ We'll insert Build Barracks after Build House, Train Soldier after Assign Idle Villagers, and Attack after Train Soldier. 
+
+ We'll need to ensure the conditions use correct config references. The missing AI rules use strings like 'Barracks', 'Soldier'. We'll replace with CONFIG.ENTITIES.Barracks.type, etc. 
+
+ Also, the Attack rule uses Soldier type; we'll use CONFIG.ENTITIES.Soldier.type. 
+
+ Also, the Build Barracks rule uses state.aiMemory.buildingBarracks. We need to ensure that flag is initialized in state.aiMemory (it is already there? In base, state.aiMemory has buildingHouse and buildingBarracks? Actually, base state.aiMemory has buildingHouse, buildingBarracks? Let's check base: state.aiMemory = { buildingHouse: false, buildingBarracks: false, gatherRate: {...}, lastActionTime:0 }. Yes, it has both. Good. 
+
+ Also, the Train Soldier rule uses trainUnit(barracks, CONFIG.ENTITIES.SOLDIER.cost, 'enemy'). We'll use trainUnit(barracks, CONFIG.ENTITIES.Soldier.cost, 'enemy'). Note: In base, the trainUnit function expects unit type string, cost, owner. We'll pass CONFIG.ENTITIES.Soldier.type. 
+
+ Also, the Attack rule uses Soldier and players arrays. We'll adapt. 
+
+ Also, the Attack rule uses getEnemyTownCenter() etc. Those functions are defined in the base? In base, there is GameLogic.findNearestBuilding, but not a specific getEnemyTownCenter. The missing AI rules uses getEnemyTownCenter(). In the base, the AI rules use GameLogic.findNearestBuilding.bind(null)('enemy', CONFIG.ENTITIES.TownCenter.type). We can either create a helper function getEnemyTownCenter or inline. For consistency, we can create a helper in the AI module or reuse. We'll define a helper: 
+javascript
+ 
+  
+
+    function getEnemyTownCenter() {
+        return state.entities.find(e => e.owner === 'enemy' && e.type === CONFIG.ENTITIES.TownCenter.type && !e.dead);
+    }
+    function getEnemyVillager(idleOnly = false) {
+        return state.entities.find(e => e.owner === 'enemy' && e.type === CONFIG.ENTITIES.Villager.type && !e.dead && (!idleOnly || e.state === 'IDLE'));
+    }
+     
+     
+     
+
+     These are present in the minor features code. We'll add them to the AI module or as top-level functions. 
+
+     Also, the Attack rule uses players = state.entities.filter(e => e.owner === 'player' && !e.dead);. That's fine. 
+
+     Also, the Build Barracks rule uses enemyAI.planLocation('Barracks'). The enemyAI variable is defined as null initially and set in GameLogic.initGame to new CityPlanner(tc.position). We need to ensure it's accessible. In base, enemyAI is declared at top and set in initGame. Good. 
+
+     Also, the Train Soldier rule uses barracks.productionQueue.length < 2. That's fine. 
+
+     Also, the Attack rule condition checks soldiers.length >= 3. That's fine. 
+
+     We'll add the missing rules. 
+
+     Now, about the order: The base's AI.rules currently is an array. We'll reorder. The order should be: Build House, Build Barracks, Train Villager, Assign Idle Villagers, Train Soldier, Attack. 
+
+     So we'll modify the array accordingly. 
+
+     Also, the existing "Train Villager" rule condition uses state.aiMemory.gatherRate etc. That's fine. 
+
+     Now, we also need to add the minor feature's checkWinCondition. The base doesn't have it. We'll add the function and call it via setInterval in GameLogic.initGame. 
+
+     The checkWinCondition should check if all player or enemy entities are gone. It should also respect game over already set. We'll add. 
+
+     Also, we need to add endGame function that sets state.gameOver, shows game-over-screen, pauses, etc. 
+
+     The minor features code includes a game-over-screen HTML and CSS. We'll add that. 
+
+     Also, the minor features includes a pause button. We'll add that. 
+
+     Also, the minor features includes pop warning. We'll add CSS class and toggle in UI.update. 
+
+     Also, the minor features includes gather point visuals. We'll add AssetFactory.createFlag, modify Building class. 
+
+     Let's go step by step in modifying the code. 
+     
+
+We'll produce the final merged HTML file. Since the output is a single HTML file, we need to write the complete code. I'll construct it by taking the aggressive_refactored_new_codebase as the starting point, then apply all modifications. 
+
+Given the size, I'll produce the final code with all changes integrated. I'll be careful to include all necessary parts. 
+
+I'll start with the base code, then add modifications in the appropriate places. 
+
+Let's outline the merged file structure: 
+
+
+----
+
+[refer to github.com/lemonteaa/various-ai-artifacts/GLM_47_tests/ageofempire_clone/major_merge_draft.html]
+
+----
+
+
+Now, we need to double-check for any missing pieces and ensure the code is correct. 
+
+Potential issues: 
+
+     
+
+    In the resource bar, we have a pause button. The pause button is inside #top-menu? In my HTML, I put it inside #top-menu as a button with id pause-btn. That's fine. 
+     
+
+    The pause button event listener is added in Input.init. It toggles state.isPaused and updates button appearance. Good. 
+     
+
+    The overlayPaused flag is used in animate and AI.tick. UIExt.showPage sets overlayPaused = true when showing a full-page, false when showing game. UIExt.openModal sets overlayPaused = true, closeModals sets it to false only if page is 'game'. That should work. 
+     
+
+    The game-over-screen is also a full-page, but we didn't add it to the full-page class list; we added its own style. In endGame, we add 'active' class to #game-over-screen. But we didn't give it class 'full-page'. That's fine; it's a separate overlay. However, we might want to ensure it also sets overlayPaused. In endGame we set state.overlayPaused = true. Good. 
+     
+
+    The stats-screen is a full-page, and when we show it via UI.showPage('stats-screen'), overlayPaused becomes true. 
+     
+
+    The prepare-screen is a full-page, initially active. overlayPaused is true initially? In UIExt.init, we don't call showPage; we just have the HTML with class 'active'. That means the initial state has overlayPaused? We haven't set it explicitly. We should set initial overlayPaused = true because a full-page is active. In the base state initialization, we set overlayPaused = false. But we should update it after UI loads. We can set it after UIExt.init: if State.page is 'prepare-screen', then overlayPaused = true. Since we haven't set State.page yet; we set State.page = 'prepare-screen' in the State object. So we can after UIExt.init, call UIExt.showPage('prepare-screen')? But that would hide all full-pages and then show prepare-screen, which is already shown. We could manually set state.overlayPaused = true at the start. Simpler: in the state initialization, set overlayPaused = true initially because we are in the prepare screen. We'll change: state.overlayPaused = true; initially. Then in UIExt.showPage('game'), set false. 
+     
+
+    The civ-icon uses #civ-egypt. We defined the symbol. Good. 
+     
+
+    The tech-modal open is on civ-status-area click; that sets overlayPaused true. That's fine. 
+     
+
+    The menu modal includes "View Statistics" which calls UIExt.showPage('stats-screen'). That will close modals (if any) and show stats-screen, setting overlayPaused true. That's fine. 
+     
+
+    The "Quit to Menu" button calls location.reload(), which is fine. 
+     
+
+    The pause button toggles state.isPaused; that's separate. 
+     
+
+    The AI.rules order: Build House, Build Barracks, Train Villager, Assign Idle Villagers, Train Soldier, Attack. That's correct. 
+     
+
+    The AI rules use getEnemyTownCenter and getEnemyVillager functions; we defined them. 
+     
+
+    The Attack rule uses CONFIG.ENTITIES.Soldier.type; that's correct. 
+     
+
+    The minor feature's gather point visuals: we added AssetFactory.createFlag and Building.showGatherPointVisuals. In Building.setSelected we call it. In Input contextmenu, when setting gatherPointPos, we call unit.setSelected(true) for building to update visuals. That's good. 
+     
+
+    The minor feature's soldier retaliation: we added attacker parameter to Unit.takeDamage and retaliation logic. 
+     
+
+    The minor feature's pop warning: we added CSS and UI.update toggles class. 
+     
+
+    The minor feature's checkWinCondition: we added function and called it in GameLogic.initGame. 
+     
+
+    The minor feature's endGame: we added function, which shows game-over-screen and sets pauses. 
+     
+
+    The base's Input.init calls window.addEventListener for keys; we kept that. 
+     
+
+    The base's Input.init also adds event listener for pause button; we added that. 
+     
+
+    The base's Input.init also adds central UI event listener; we kept that. 
+     
+
+    The base's Input.init also adds canvas events; we kept. 
+     
+
+    The base's Input.init also adds contextmenu; we kept. 
+     
+
+    The base's UI object has notify, selectEntity, etc. We kept. 
+     
+
+    The new UI's UIExt uses UI.notify; we set that. 
+     
+
+    The new UI's UIExt.init calls Prepare.renderPlayerList and Diplomatic.renderDiplomacy; we need to ensure those functions exist. They are defined after UIExt? In the script order, we defined UIExt first, then Prepare, Diplomatic, Game. That's fine because UIExt.init is called at the bottom after all definitions. So the order of definitions: after the main code, we define State, UIExt, Prepare, Diplomatic, Game, then call UIExt.init(). That's correct. 
+     
+
+    Prepare.renderPlayerList uses State.players; we set initial players with 2 players. The add/remove functions limit to 2; we notify if attempt to exceed. 
+     
+
+    The prepare screen's start button calls Game.start(). Game.start calls UIExt.showPage('game'), Input.init(), GameLogic.initGame(). Input.init is called only once; we ensure that. The base's Input.init already attaches event listeners; calling it again would duplicate. So we should guard: only call Input.init once. We can add a flag: let inputInitialized = false; in Input.init, set to true. Or we can call Input.init in Game.start only if not initialized. Simpler: we can call Input.init at the beginning (when page loads) and not in Game.start. But the base currently calls Input.init in window.startGame. In our integration, we are replacing that with Game.start. We could keep Input.init called in Game.start, but we need to ensure it's not called multiple times if the user restarts. Since we don't have a restart function (we reload), it's okay. But to be safe, we can check if input listeners are already attached. However, the base's Input.init attaches event listeners; if called twice, they'd duplicate. So we should add a check. We'll modify Input.init to set a flag and return if already initialized. 
+     
+
+Let's add: 
+javascript
+ 
+  
+let inputInitialized = false;
+Input.init = function() {
+    if (inputInitialized) return;
+    inputInitialized = true;
+    // ... rest of code
+}
+ 
+ 
+ 
+
+But we are using the existing Input.init from base; we can modify it to include that flag. 
+
+Similarly, we need to ensure that GameLogic.initGame is not called multiple times without cleaning up. Since we only start once, it's fine. 
+
+Also, note: The base's window.startGame is not used anymore; we have Game.start. So we can remove window.startGame or not; it's not referenced. We can leave it, but it's not called. 
+
+Now, also check the civ icon: We set #civ-icon innerHTML with <use href="#civ-egypt"/>. The symbol is defined. Good. 
+
+Now, check the tech-modal: It opens from civ-status-area click. That's fine. 
+
+Now, check the diplomacy-modal: It opens from top-menu button. Good. 
+
+Now, check the menu-modal: It opens from top-menu button. It has options. We connected resume, etc. 
+
+Now, check the pause button: It's in the top-menu. It toggles state.isPaused. 
+
+Now, check the resource ticker: We removed it. 
+
+Now, check the UI.updateCivDisplay: It updates civ name and age. We don't call it anywhere. Should we call it on init? We could call it in UIExt.init. Also, when advancing age, Game.advanceAge calls UIExt.updateCivDisplay. So we should call it initially to set the display. Let's add UIExt.updateCivDisplay() in UIExt.init. 
+
+Also, we should set the civ icon to match State.civ initially. In UIExt.init, call UIExt.updateCivDisplay(). 
+
+Now, the tech-modal renderTechTree uses State.ageIndex and State.researched. That's fine. 
+
+Now, the diplomacy modal renderDiplomacy uses State.diplomacy; that's fine. 
+
+Now, we need to ensure that when game starts, we reset any UI state if needed. But we are not implementing full reset; we just call GameLogic.initGame which generates map. The previous state from UI (like player names) are not used in game logic; they are just for display. That's okay for now. 
+
+Now, we need to ensure that the game-over-screen is hidden initially; we have style display: none. In endGame we add class 'active'. We also set overlayPaused true. 
+
+Now, check the stats-screen: It is a full-page. When shown via UI.showPage('stats-screen'), it will become active and overlayPaused true. The stats-screen has a "home" button that calls UI.showPage('prepare-screen'). That will hide stats and show prepare, which sets overlayPaused true again. That's fine. 
+
+Now, check the restart button on game-over: It does location.reload(), which reloads the page. That's okay. 
+
+Now, we need to ensure that the CSS for full-page and modals are loaded. We included all. 
+
+Now, potential naming conflict: The base's UI object and the new UI's UIExt object. The base's UI is used for game UI (update, selectEntity, etc.). The new UI's functions are in UIExt. That's fine. 
+
+Now, we also have a UI.notify in base; we reused in UIExt.notify by calling UI.notify. 
+
+Now, we need to ensure that the resource bar's pop warning works: UI.update toggles class on #res-max-pop. We added that. 
+
+Now, ensure that the health bar container is still there; it is. 
+
+Now, check that the selection-box is still there. 
+
+Now, ensure that the canvas-hint is there; it's just background text. 
+
+Now, test the AI rules for correctness: The condition for Build Barracks uses state.entities.filter(e => e.owner === 'enemy' && e.type === CONFIG.ENTITIES.Barracks.type).length. That's fine. The action uses getEnemyVillager(true). That returns an idle villager. That's fine. 
+
+Now, check Train Soldier rule: condition uses barracks.productionQueue.length < 2. That's fine. 
+
+Now, check Attack rule: condition uses soldiers.length >= 3. That's fine. 
+
+Now, check that the AI.tick uses the correct state for pause checks: we added state.overlayPaused. 
+
+Now, check that the animate loop uses state.overlayPaused and state.isPaused. 
+
+Now, check that the Input init uses the correct checks for pause when processing hotkeys: we added if (state.isPaused || state.overlayPaused) return; in keydown. Good. 
+
+Now, check that the Input init also blocks building mode actions when paused? We have if (!state.isPlaying) return; at top of keydown, and then checks pause. That's fine. 
+
+Now, check that the canvas mouse events also need to check pause? For simplicity, we didn't add pause checks there; the game loop is paused, but UI interactions like selecting units still work? In many games, you can still select when paused. That's acceptable. 
+
+Now, check the building mode ghost movement in mousemove: we didn't add pause check; the ghost should still move when paused? Probably not necessary. We can leave as is; the game loop doesn't update, but the mouse event updates ghost position. That's okay. 
+
+Now, check the confirmBuildPlacement: it's called in mouseup, not affected by pause. That's okay. 
+
+Now, check the cancelBuildingMode: also in contextmenu, okay. 
+
+Now, check the right-click command: we send commands to units even if paused? The game logic updates are paused, but setting state on units is fine; they will execute when unpaused. That's typical. So we can allow commands while paused. So we don't need to block that. 
+
+Now, ensure that the game-over screen is above everything: z-index 100, while modals also z-index 100. Game-over screen may overlap. We can increase game-over z-index to 200, but it's fine. 
+
+Now, check the initial overlayPaused: we set to false in state initialization. But we have prepare-screen active. We should set it to true initially. Let's modify state.overlayPaused = true; at the start. Because a full-page is showing. We'll do that. 
+
+In the state object, set overlayPaused: true initially. 
+
+Then in UIExt.showPage('game'), we set to false. That's correct. 
+
+Now, we also need to ensure that when we call UIExt.showPage('prepare-screen') from stats screen home button, overlayPaused becomes true again. That's fine. 
+
+Now, ensure that when we open a modal while a full-page is active (e.g., from prepare screen), we set overlayPaused = true (already true). That's fine. 
+
+Now, we also need to handle the case where we close the modal while a full-page is active: we should keep overlayPaused true. Our UIExt.closeModals sets overlayPaused = false only if State.page === 'game'. That's good. 
+
+Now, we should also add the flag inputInitialized to Input.init to prevent double attachment. Let's modify Input.init: 
+javascript
+ 
+  
+Input.init = function() {
+    if (Input.initialized) return;
+    Input.initialized = true;
+    // ... rest
+}
+ 
+ 
+ 
+
+We'll add Input.initialized = false; before. 
+
+Now, check the UIExt.showPage function: We used document.querySelectorAll('.full-page').forEach(p => p.classList.remove('active'));. But the game-over-screen does not have class 'full-page'. So it will not be removed. That's okay because game-over-screen is separate. However, if we go from game-over to prepare via reload, it's fine. But if we wanted to hide game-over manually, we could. Not needed. 
+
+Now, check the UIExt.openModal: It sets overlayPaused = true. If already true, fine. 
+
+Now, check the UIExt.closeModals: It sets overlayPaused = false if page is 'game'. But if page is not 'game', we should keep it true. That's correct. 
+
+Now, we also need to update the pause button text when game is paused via overlay? Not necessary; pause button only toggles manual pause. Overlay pause is separate. 
+
+Now, one more thing: The base's UI.updateSelection calls UI.createActionButton. The createActionButton adds buttons with data-ui-route-type. The central UI event listener uses that to route actions. That still works. 
+
+Now, the new UI's modals and full-pages have interactive elements; they are within .interactive class, which enables pointer events. 
+
+Now, we need to ensure that the game-over-screen is hidden when game starts. In endGame, we add class 'active'. When we reload, it's hidden because we have style display: none and not active. But if we start a new game without reload, we would need to hide it. Since we only reload to restart, it's fine. 
+
+Now, test the initial state: The prepare-screen is active, overlayPaused = true. The game is not running. That's fine. 
+
+Now, we should also consider that the base's GameLogic.initGame sets state.isPlaying = true, and calls animate. But if we call it while overlayPaused is true, the animate loop will just render and return. That's fine; the game will be effectively paused until we switch to game page. However, note that AI.tick will also be called and will respect overlayPaused. So the game will not progress until we show game page. 
+
+Now, we need to ensure that when we switch to game page, the game loop resumes. Since overlayPaused becomes false, animate will start updating. 
+
+Now, we also need to ensure that the camera controls work when paused? In animate, we skip updates but still render. The OrbitControls.update() is called after entity updates. If we skip updates, controls.update still runs? In our animate, we have: 
+javascript
+ 
+  
+if (state.isPaused || state.overlayPaused) {
+    renderer.render(scene, camera);
+    return;
+}
+ 
+ 
+ 
+
+So we return before calling controls.update(). That means camera controls (pan, zoom, rotate) won't work when paused. That's typical. However, the base's camera panning via arrow keys also updates inside the dt block, so it won't work when paused. That's fine. 
+
+Now, all seems integrated. 
+
+Let's write the final code with the modifications. 
+
+I'll produce the final HTML file with all changes. 
+
+Note: The above code block is already the merged version. I'll ensure it's complete and correct. 
+
+One more check: In the CSS, I added .pop-warning animation, but the variable --danger is defined. That's fine. 
+
+Also, I added .toast animation from base; new UI had a different one but we kept base. 
+
+Also, added .btn-large from minor features (used in game-over). But also used in new UI's start-btn which uses .start-btn. So we have both. 
+
+Also, the new UI's .full-page has z-index 50, game-over has z-index 100, modals have z-index 100. Might conflict; we can set modals to 101 to be above full-pages. But full-pages are hidden when modal opens? Not necessarily. When we open modal from game page, full-pages are hidden (none active). So modal will be visible. If we open modal from prepare page? Not implemented. So it's fine. 
+
+Now, finalize. 
+

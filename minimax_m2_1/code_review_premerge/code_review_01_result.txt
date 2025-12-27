@@ -1,0 +1,62 @@
+Note: by Minimax M2.1
+----
+Based on my review of the `conservative_refactor` (v6) and `aggressive_refactor` (v6.1) branches, I have identified the specific impacts of the architectural changes.
+
+### 1. Executive Summary
+The **aggressive refactor** successfully improves code quality by introducing a modular structure (`Input`, `UI`, `GameLogic`, `AI`, `Sound`, `Effects` classes/objects). It also fixes a scope bug in the helper functions where `this` wasn't being passed correctly.
+
+**However, the aggressive refactor introduces a critical regression in gameplay:** The **AI logic has been significantly neutered**. The enemy AI in the aggressive version will only build Houses and train Villagers. It completely lacks the logic to build Barracks, train Soldiers, or Attack the player. This means the game will become very passive and boring as the enemy will never declare war.
+
+### 2. Critical Differences & Issues
+
+#### A. Missing AI Rules (Critical)
+The conservative version has a robust `AI_RULES` array with 6 rules, including military expansion.
+The aggressive version's `AI.rules` array only contains 3 rules.
+
+**Missing from Aggressive:**
+1.  **"Build Barracks" Rule:** The AI will never construct a barracks to produce military units.
+2.  **"Train Soldier" Rule:** Even if a barracks existed, the AI would not train soldiers.
+3.  **"Attack" Rule:** The AI has no logic to command idle soldiers to attack the player.
+
+**Recommendation:** You must port the missing rules from the conservative `AI_RULES` array into the aggressive `AI.rules` array.
+
+#### B. Logic Bug Fixes (Improvements)
+The aggressive refactor fixes a scope issue in `findNearestBuilding` (and likely similar helpers).
+
+*   **Conservative (Buggy):**
+    ```javascript
+    function findNearestBuilding(owner, type) {
+        // ...
+        const d = e.position.distanceTo(this ? this.position : new THREE.Vector3(0,0,0));
+    ```
+    Here, `this` refers to the global scope (or undefined in strict mode), meaning the Unit always calculates distance to the map center `(0,0,0)` instead of its own position. This causes incorrect targeting.
+
+*   **Aggressive (Fixed):**
+    ```javascript
+    const tc = GameLogic.findNearestBuilding.bind(this)(this.owner, CONFIG.ENTITIES.TownCenter.type);
+    // Inside GameLogic:
+    const d = e.position.distanceTo(this ? this.position : new THREE.Vector3(0,0,0));
+    ```
+    By using `.bind(this)`, the function correctly finds the building closest to the specific Unit calling it. This is a significant logic fix.
+
+#### C. Code Quality & Cleanup
+*   **Debug Logs:** The aggressive refactor left behind a debug line (`console.log(this); //TODO: remove when debug finish`) in `GameLogic.findNearestBuilding`. You should remove this.
+*   **Configuration:** The aggressive refactor normalizes the `CONFIG` keys (using `Villager` instead of `VILLAGER`), which reduces `.toUpperCase()` overhead and makes the code cleaner, provided the strings passed around are consistent (which they are).
+
+### 3. Comparison Table
+
+| Feature | Conservative (v6) | Aggressive (v6.1) | Status |
+| :--- | :--- | :--- | :--- |
+| **Code Structure** | Procedural/Spaghetti | Modular (Classes/Objects) | ✅ **Improved** |
+| **AI - Military** | Full (Barracks, Soldiers, Attack) | **Missing** | ❌ **Broken** |
+| **AI - Economy** | Full (Villagers, Houses) | Full | ✅ **Equivalent** |
+| **Unit Targeting** | Distance to Map Center (0,0,0) | Distance to Unit Position | ✅ **Fixed** |
+| **Hotkey Input** | Direct Listeners | `Input` Module | ✅ **Equivalent** |
+| **Selection Box** | Working | Working | ✅ **Equivalent** |
+| **UI/CSS** | Identical | Identical | ✅ **Equivalent** |
+
+### 4. Conclusion & Path Forward
+The **aggressive refactor** is the better architectural foundation. The code is cleaner, easier to extend, and fixes the scope bug.
+
+**Action Item:**
+Before considering the aggressive branch complete, you **must** restore the missing rules to the `AI` object. Specifically, copy the logic for "Build Barracks", "Train Soldier", and "Attack" from the conservative source into the `AI.rules` array in the aggressive source. Without this, the game is broken.
