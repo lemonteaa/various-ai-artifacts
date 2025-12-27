@@ -1,0 +1,9 @@
+Okay, let's pause from this task.
+
+In my roadmap, one of the most ambitious goal is to make it possible for player to create their own custom map. To this end, I would like you to instead write a map editor for this game (a completely separate webpage from the main game). You may copy only the class/code from the main game that is strictly necessary for this task. The editor should:
+
+- have consistent/same UI styling/theme compared to the main game. (though the UI layout can change)
+- allow running the random map generator to get some natural resources placed on map.
+- let user manually place, move, or remove buildings and units on map intuitively. (some UI menu to select building/unit type + player id?)
+- able to load/save the map data in JSON.
+

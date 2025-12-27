@@ -1,0 +1,855 @@
+ 
+
+        Analyze the Request: 
+             Goal: Create a standalone Map Editor for the Age of Empires 3D Prototype.
+             Separation: Completely separate webpage from the main game.
+             Code Reuse: Copy only strictly necessary classes (Three.js, AssetFactory, basic entities for placement).
+             Styling: Consistent UI theme (colors, fonts) as the main game.
+             Features:
+                 Run random map generator (for resources).
+                 Manual placement/movement/removal of buildings/units.
+                 UI for selecting type (Building/Unit) and Player ID (Player 1, Player 2, Gaia/Neutral).
+                 Save/Load map data in JSON.
+                 
+              
+
+        Determine Scope & Architecture: 
+             Dependencies: Three.js (via CDN), OrbitControls.
+             Core Logic Needed:
+                 Three.js Setup (Scene, Camera, Renderer).
+                 AssetFactory (for previewing what we are placing).
+                 MapGenerator (simplified version to just place resources).
+                 State Management (Editor specific: list of placed objects).
+                 Interaction Logic (Raycasting for placement/deletion).
+                 File I/O (JSON parsing/serialization).
+                 
+             Not Needed: Game loop (animate loop still needed for rendering, but no dt game logic), AI, Resource gathering logic, Combat logic, Production queues.
+             UI Layout:
+                 Sidebar/Overlay for tools.
+                 "Palette" of entities to place.
+                 Player selector.
+                 Buttons: Generate Map, Save, Load, Clear.
+                 
+              
+
+        Step-by-Step Implementation Plan: 
+             Step 1: Boilerplate & CSS: Copy the CSS variables and basic structure from the main game. Add editor-specific styles (sidebar, tool buttons).
+             Step 2: Three.js Setup: Standard setup. Since this is an editor, we want a clear view. Maybe an isometric camera or top-down perspective with OrbitControls.
+             Step 3: Asset Factory: Copy the procedural generation code. This is crucial for visual feedback during editing.
+             Step 4: Editor State:
+                 editorObjects: Array storing { id, type, owner, position, rotation }.
+                 selectedTool: What are we placing? (e.g., 'Villager', 'House', 'Tree').
+                 selectedOwner: Who owns it? ('player', 'enemy', 'gaia').
+                 mode: 'place', 'delete', 'move'.
+                 
+             Step 5: Interaction (Raycasting):
+                 Mouse Move: Show a "ghost" of the selected object at the cursor position (snapped to grid or float). Let's go with grid snapping for buildings to make it look neat, free placement for units? Or just simple ground snapping. Let's stick to ground snapping for simplicity.
+                 Click: Add object to editorObjects array and scene.
+                 Right Click/Delete: Remove object.
+                 
+             Step 6: Map Generation: Port the simplified MapGenerator logic from the previous refactor to place trees/gold randomly.
+             Step 7: Serialization (Save/Load):
+                 Save: JSON.stringify editorObjects. Trigger download.
+                 Load: File input reader -> JSON.parse -> clear scene -> rebuild editorObjects.
+                 
+             Step 8: UI Construction: A side panel.
+                 Section: Tools (Place, Select/Move, Delete).
+                 Section: Entity Palette (Icons/Buttons).
+                 Section: Player Toggle.
+                 Section: Map Actions.
+                 
+              
+
+        Refining the Details (Self-Correction): 
+             Grid: Editors feel better with a visible grid. I'll add a large GridHelper.
+             Ghost Object: I need a reusable mesh that follows the mouse to show what will be placed.
+             Movement: "Move" is tricky. Simplest approach: Click to select -> Drag to move? Or just Delete and Re-place. The prompt asks for "Move", so I should try to support it.
+                 Implementation: Click object -> it becomes the "active" object (highlights). Click elsewhere -> moves there.
+                 
+             Data Structure: The JSON should be compatible with the main game if possible.
+                 Main game expects state.entities.
+                 Editor JSON: [{ "type": "TownCenter", "owner": "player", "position": { "x": 0, "y": 0, "z": 0 } }].
+                 
+              
+
+        Drafting the Code (Mental or Scratchpad): 
+             HTML Structure:
+            html
+             
+              
+
+        <div id="editor-ui">
+           <h3>Map Editor</h3>
+           <div class="panel">...Palette...</div>
+           <div class="panel">...Actions...</div>
+        </div>
+         
+         
+         
+         JS Logic:
+             ghostMesh: Updated on mousemove.
+             placeObject(): Creates the real mesh, adds to list.
+             deleteObject(): Removes mesh, splices list.
+             saveMap(): Blob -> URL -> a tag click.
+             
+          
+
+    Writing the actual code (incorporating into the final response): 
+         CSS: Use var(--ui-bg), var(--ui-text) to ensure consistency.
+         AssetFactory: I need to include the exact logic from the V6 refactor so the models look the same.
+         MapGenerator: Include the class, but expose a generateResourcesOnly method since the editor will handle player starts manually or via separate tools.
+          
+
+    Final Review against Requirements: 
+         Separate webpage? Yes.
+         Strictly necessary code? Yes (Three, AssetFactory, logic for scene graph).
+         Consistent UI? Yes.
+         Random Gen? Yes.
+         Manual Place/Move/Remove? Yes (implemented via "Tools").
+         Save/Load JSON? Yes.
+          
+
+    Output Generation: (Proceed to generate the HTML file).  
+
+(Self-Correction during coding Move functionality):
+Implementing full "Drag to move" can be buggy with Raycasting in a simple script. A "Select" then "Place New Position" (teleport) is easier and robust. I'll implement a "Select/Move" mode where clicking an object picks it up (it disappears from world, attaches to cursor), and clicking again drops it. 
+
+    Formatting: Provide the code block clearly. 
+
+(Final Polish): Ensure the Three.js import map is correct. Ensure the AssetFactory logic is robust enough (handling rotations if needed, though V6 didn't emphasize rotation much, I'll keep rotation fixed to 0 for simplicity unless I add a rotation tool, which might be overkill. I'll stick to Y-axis rotation 0 or random for trees). 
+
+Let's stick to: Units/Resources don't rotate (or simple rotation). Buildings don't rotate. This keeps it simple. 
+
+The "Move" logic: 
+
+    Click object -> it enters draggedObject variable, removed from scene (but kept in editorObjects list). 
+    Mouse moves -> draggedObject moves with ghost. 
+    Click ground -> place at new spot. 
+
+This feels good. 
+
+Let's build it. 
+
+--------
+
+
+
+
+Here is the standalone Map Editor. It reuses the `AssetFactory` and styling logic from the main game to ensure consistency.
+
+### Key Features
+1.  **Tools**: Place, Move (Pick up and drop), Delete.
+2.  **Palette**: Select any Building, Unit, or Resource.
+3.  **Ownership**: Toggle between Player 1 (Blue), Player 2 (Red), or Gaia (Green/Gold).
+4.  **Generation**: A button to procedurally scatter Resources (Trees/Gold) across the map.
+5.  **I/O**: Save the current state to a `.json` file, or Load a previously saved file.
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Empire Map Editor</title>
+    <style>
+        :root {
+            --ui-bg: rgba(20, 20, 30, 0.95);
+            --ui-border: #8b7e66;
+            --ui-text: #f0e6d2;
+            --accent: #d4af37;
+            --danger: #ff4444;
+            --success: #44ff44;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1a1a1a;
+            user-select: none;
+        }
+
+        #editor-container {
+            position: absolute;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            z-index: 1;
+        }
+
+        /* --- UI Sidebar --- */
+        #ui-sidebar {
+            position: absolute;
+            top: 0; left: 0;
+            width: 280px;
+            height: 100vh;
+            background: var(--ui-bg);
+            border-right: 2px solid var(--ui-border);
+            z-index: 10;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.5);
+            overflow-y: auto;
+            pointer-events: auto;
+        }
+
+        h2 { color: var(--accent); margin: 0 0 10px 0; font-size: 1.2rem; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid var(--ui-border); padding-bottom: 5px; }
+        h3 { color: #ccc; margin: 10px 0 5px 0; font-size: 0.9rem; text-transform: uppercase; }
+
+        /* Tools Grid */
+        .tool-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+        
+        .tool-btn {
+            background: #2a2a3e;
+            border: 1px solid #444;
+            color: var(--ui-text);
+            padding: 10px;
+            cursor: pointer;
+            border-radius: 4px;
+            text-align: center;
+            font-size: 0.8rem;
+            transition: all 0.2s;
+        }
+        .tool-btn:hover { background: #3a3a5e; }
+        .tool-btn.active { background: var(--accent); color: #000; border-color: #fff; font-weight: bold; box-shadow: 0 0 8px var(--accent); }
+
+        /* Entity Palette */
+        .palette-list {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 5px;
+        }
+        .palette-item {
+            background: #333;
+            border: 1px solid #555;
+            color: #ddd;
+            padding: 8px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            border-radius: 3px;
+        }
+        .palette-item:hover { background: #444; border-color: var(--accent); }
+        .palette-item.active { background: var(--accent); color: #000; font-weight: bold; }
+
+        /* Owner Toggle */
+        .owner-toggles {
+            display: flex;
+            gap: 5px;
+        }
+        .owner-btn {
+            flex: 1;
+            padding: 8px;
+            background: #333;
+            border: 1px solid #555;
+            color: #aaa;
+            cursor: pointer;
+            font-size: 0.8rem;
+            border-radius: 3px;
+        }
+        .owner-btn.active { border-color: var(--accent); color: #fff; }
+        .owner-p1.active { background: #4488ff; }
+        .owner-p2.active { background: #ff4444; }
+        .owner-gaia.active { background: #44aa44; }
+
+        /* Action Buttons */
+        .action-btn {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 8px;
+            background: #444;
+            border: 1px solid #666;
+            color: white;
+            cursor: pointer;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .action-btn:hover { background: #555; }
+        .action-btn.save { background: #2a5a2a; border-color: #4caf50; }
+        .action-btn.load { background: #2a2a5a; border-color: #4466ff; }
+        .action-btn.clear { background: #5a2a2a; border-color: #ff4444; }
+
+        /* Toast */
+        #toast {
+            position: absolute; bottom: 20px; right: 20px;
+            background: rgba(0,0,0,0.9);
+            color: white;
+            padding: 10px 20px;
+            border-left: 4px solid var(--accent);
+            border-radius: 4px;
+            opacity: 0; transition: opacity 0.3s;
+            pointer-events: none;
+            z-index: 20;
+        }
+        #toast.show { opacity: 1; }
+
+        /* Instructions */
+        .instructions { font-size: 0.8rem; color: #888; margin-top: auto; line-height: 1.4; }
+    </style>
+</head>
+<body>
+
+    <div id="editor-container"></div>
+    
+    <div id="ui-sidebar">
+        <h2>Map Editor</h2>
+
+        <!-- Tools -->
+        <div>
+            <h3>Tools</h3>
+            <div class="tool-grid">
+                <div class="tool-btn active" id="tool-place" onclick="setTool('place')">Place</div>
+                <div class="tool-btn" id="tool-move" onclick="setTool('move')">Move</div>
+                <div class="tool-btn" id="tool-delete" onclick="setTool('delete')">Delete</div>
+            </div>
+        </div>
+
+        <!-- Owner Selection -->
+        <div>
+            <h3>Owner</h3>
+            <div class="owner-toggles">
+                <div class="owner-btn owner-p1 active" id="owner-player" onclick="setOwner('player')">P1</div>
+                <div class="owner-btn owner-p2" id="owner-enemy" onclick="setOwner('enemy')">P2</div>
+                <div class="owner-btn owner-gaia" id="owner-gaia" onclick="setOwner('gaia')">Nature</div>
+            </div>
+        </div>
+
+        <!-- Palette -->
+        <div>
+            <h3>Palette</h3>
+            <div class="palette-list" id="palette">
+                <!-- Generated by JS -->
+            </div>
+        </div>
+
+        <!-- Map Actions -->
+        <div>
+            <h3>Map Actions</h3>
+            <button class="action-btn" onclick="generateResources()">Generate Resources</button>
+            <button class="action-btn clear" onclick="clearMap()">Clear Map</button>
+        </div>
+
+        <div style="margin-top: 10px; border-top: 1px solid var(--ui-border); padding-top: 10px;">
+            <h3>File</h3>
+            <button class="action-btn save" onclick="saveMap()">Save JSON</button>
+            <button class="action-btn load" onclick="document.getElementById('file-input').click()">Load JSON</button>
+            <input type="file" id="file-input" accept=".json" style="display: none;" onchange="loadMap(this)">
+        </div>
+
+        <div class="instructions">
+            <strong>Shortcuts:</strong><br>
+            Left Click: Action<br>
+            Right Click: Cancel / Delete<br>
+            Scroll: Zoom<br>
+            Drag: Rotate Camera
+        </div>
+    </div>
+
+    <div id="toast">Map Saved</div>
+
+    <script type="importmap">
+        { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- CONFIG & ASSETS (Copied from Main Game) ---
+        const CONFIG = {
+            COLORS: {
+                PLAYER: 0x4488ff,
+                PLAYER_BUILDING: 0x3366cc,
+                ENEMY: 0xff4444,
+                ENEMY_BUILDING: 0xcc3333,
+                GHOST: 0x00ff00,
+                GROUND: 0x2e5a2e,
+                GAIA: 0x88aa88
+            }
+        };
+
+        const PALETTE_ITEMS = [
+            { type: 'TownCenter', cat: 'Building' },
+            { type: 'House', cat: 'Building' },
+            { type: 'Barracks', cat: 'Building' },
+            { type: 'Villager', cat: 'Unit' },
+            { type: 'Soldier', cat: 'Unit' },
+            { type: 'Tree', cat: 'Resource' },
+            { type: 'GoldMine', cat: 'Resource' },
+            { type: 'BerryBush', cat: 'Resource' },
+            { type: 'OilSeep', cat: 'Resource' }
+        ];
+
+        const AssetFactory = {
+            create: function(type, civ, color, overrideMat) {
+                const group = new THREE.Group();
+                const material = overrideMat || new THREE.MeshStandardMaterial({ color: color });
+                
+                const addMesh = (geo, mat, pos, scale) => {
+                    const mesh = new THREE.Mesh(geo, mat || material);
+                    if(pos) mesh.position.copy(pos);
+                    if(scale) mesh.scale.set(scale, scale, scale);
+                    mesh.castShadow = true;
+                    mesh.receiveShadow = true;
+                    group.add(mesh);
+                };
+
+                const createBase = (w, h, d) => {
+                    const geo = new THREE.BoxGeometry(w, h, d);
+                    addMesh(geo, null, new THREE.Vector3(0, h/2, 0), 1);
+                    const roofGeo = new THREE.ConeGeometry(Math.max(w,d)*0.7, h*0.8, 4);
+                    addMesh(roofGeo, new THREE.MeshStandardMaterial({color: civ==='enemy'?0xaa3333:0x3366cc}), new THREE.Vector3(0, h + h*0.4, 0), 1);
+                };
+
+                switch(type) {
+                    case 'TownCenter': createBase(8, 6, 8); break;
+                    case 'House': createBase(5, 4, 5); break;
+                    case 'Barracks': 
+                        createBase(8, 5, 6); 
+                        addMesh(new THREE.BoxGeometry(2, 5, 2), new THREE.MeshStandardMaterial({color:0x555555}), new THREE.Vector3(-2, 2.5, 2), 1);
+                        addMesh(new THREE.BoxGeometry(2, 5, 2), new THREE.MeshStandardMaterial({color:0x555555}), new THREE.Vector3(2, 2.5, 2), 1);
+                        break;
+                    case 'Villager':
+                        addMesh(new THREE.CapsuleGeometry(0.8, 0.6, 4, 8), null, new THREE.Vector3(0,1.1,0), 1);
+                        break;
+                    case 'Soldier':
+                        addMesh(new THREE.CapsuleGeometry(0.8, 1.4, 4, 8), null, new THREE.Vector3(0,1.5,0), 1);
+                        break;
+                    case 'Tree':
+                        addMesh(new THREE.ConeGeometry(1.5, 6, 8), null, new THREE.Vector3(0,3,0), 1);
+                        break;
+                    case 'GoldMine':
+                        addMesh(new THREE.DodecahedronGeometry(2.5), null, new THREE.Vector3(0,1.5,0), 1);
+                        break;
+                    case 'BerryBush':
+                        addMesh(new THREE.SphereGeometry(1.5, 8, 8), null, new THREE.Vector3(0,1.5,0), 1);
+                        break;
+                    case 'OilSeep':
+                        addMesh(new THREE.CylinderGeometry(3, 3, 0.5, 16), null, new THREE.Vector3(0,0.25,0), 1);
+                        break;
+                }
+                return group;
+            }
+        };
+
+        // --- EDITOR STATE ---
+        const editorState = {
+            objects: [], // { id, type, owner, mesh }
+            tool: 'place', // place, move, delete
+            selectedType: 'TownCenter',
+            owner: 'player',
+            draggedObject: null, // For move mode
+            idCounter: 0
+        };
+
+        // --- THREE.JS SETUP ---
+        const container = document.getElementById('editor-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB);
+        scene.fog = new THREE.Fog(0x87CEEB, 100, 350);
+
+        const aspect = window.innerWidth / window.innerHeight;
+        const d = 120; // Zoom out a bit for editor
+        const camera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, 1, 1000);
+        camera.position.set(100, 100, 100);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        container.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableRotate = true;
+        controls.enableZoom = true;
+        controls.enablePan = false;
+        controls.minZoom = 0.5;
+        controls.maxZoom = 3;
+
+        // Lighting
+        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(50, 100, 50);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        scene.add(dirLight);
+
+        // Ground
+        const groundGeo = new THREE.PlaneGeometry(400, 400);
+        const groundMat = new THREE.MeshStandardMaterial({ color: CONFIG.COLORS.GROUND });
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        ground.name = "Ground";
+        scene.add(ground);
+
+        const gridHelper = new THREE.GridHelper(400, 40, 0x000000, 0x000000);
+        gridHelper.material.opacity = 0.2;
+        gridHelper.material.transparent = true;
+        scene.add(gridHelper);
+
+        // Ghost Mesh (Cursor)
+        let ghostMesh = new THREE.Group();
+        ghostMesh.visible = false;
+        scene.add(ghostMesh);
+
+        // --- INTERACTION ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        // Update Ghost
+        window.addEventListener('mousemove', (e) => {
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+
+            const intersects = raycaster.intersectObject(ground);
+            if (intersects.length > 0) {
+                const pos = intersects[0].point;
+                ghostMesh.position.copy(pos);
+                
+                // In Move Mode, follow the dragged object
+                if (editorState.tool === 'move' && editorState.draggedObject) {
+                    editorState.draggedObject.mesh.position.copy(pos);
+                    // Adjust Y based on type
+                    if (editorState.draggedObject.type === 'Tree') pos.y = 3;
+                    else if (editorState.draggedObject.type === 'Villager') pos.y = 1.1;
+                    else if (editorState.draggedObject.type === 'Soldier') pos.y = 1.5;
+                    else pos.y = 0; // Buildings are groups centered at 0 usually
+                    
+                    // Buildings need to sit ON ground, but AssetFactory might center them.
+                    // Let's just reset Y to 0 for building groups to keep it simple
+                    if (
+!['Villager', 'Soldier', 'Tree', 'GoldMine', 'BerryBush', 'OilSeep'].includes(editorState.draggedObject.type)
+) {
+                        pos.y = 0;
+                    } else {
+                         // Re-apply height logic based on type
+                        if (editorState.draggedObject.type === 'Villager') pos.y = 1.1;
+                        if (editorState.draggedObject.type === 'Soldier') pos.y = 1.5;
+                        if (editorState.draggedObject.type === 'Tree') pos.y = 3;
+                    }
+                }
+            }
+        });
+
+        // Click Handling
+        window.addEventListener('mousedown', (e) => {
+            // Ignore if clicking UI
+            if (e.target.closest('#ui-sidebar')) return;
+            if (e.button !== 0) return; // Only Left Click
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObject(ground);
+
+            if (intersects.length > 0) {
+                const pos = intersects[0].point;
+                handleCanvasClick(pos);
+            }
+        });
+
+        // Right Click (Cancel or Delete)
+        window.addEventListener('contextmenu', (e) => {
+            if (e.target.closest('#ui-sidebar')) return;
+            e.preventDefault();
+
+            if (editorState.tool === 'move' && editorState.draggedObject) {
+                // Cancel move: put back where it was? Or just drop?
+                // For simplicity, let's just drop it where the mouse is (same as left click)
+                // But typically right click cancels. Let's implement Cancel.
+                const obj = editorState.draggedObject;
+                scene.add(obj.mesh); // Just add it back (it's already attached to scene in mousemove)
+                editorState.draggedObject = null;
+                showToast("Move Cancelled");
+                return;
+            }
+
+            if (editorState.tool === 'delete') {
+                 // Delete under cursor
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObjects(scene.children, true);
+                if (intersects.length > 0) {
+                    // Find root object
+                    let target = intersects[0].object;
+                    while(target.parent && target.parent !== scene) target = target.parent;
+                    
+                    deleteObjectByMesh(target);
+                }
+            }
+        });
+
+        function handleCanvasClick(pos) {
+            if (editorState.tool === 'place') {
+                addObject(pos);
+            } else if (editorState.tool === 'move') {
+                if (editorState.draggedObject) {
+                    // Drop object
+                    editorState.draggedObject = null;
+                    showToast("Object Moved");
+                } else {
+                    // Try to pick up object under cursor
+                    raycaster.setFromCamera(mouse, camera);
+                    const intersects = raycaster.intersectObjects(scene.children, true);
+                    if (intersects.length > 0) {
+                        let target = intersects[0].object;
+                        // Find the top-level group in our editor list
+                        const found = editorState.objects.find(o => {
+                            // Traverse down to check if target is part of this group
+                            return o.mesh === target || o.mesh === target.parent || o.mesh.children.includes(target);
+                        });
+
+                        if (found) {
+                            editorState.draggedObject = found;
+                            showToast("Picked up " + found.type);
+                        }
+                    }
+                }
+            } else if (editorState.tool === 'delete') {
+                 // Left click also deletes
+                 raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObjects(scene.children, true);
+                if (intersects.length > 0) {
+                    let target = intersects[0].object;
+                    while(target.parent && target.parent !== scene) target = target.parent;
+                    deleteObjectByMesh(target);
+                }
+            }
+        }
+
+        function addObject(pos) {
+            const type = editorState.selectedType;
+            const owner = editorState.owner;
+            
+            // Determine Color
+            let color;
+            if (owner === 'player') {
+                if (['Villager', 'Soldier'].includes(type)) color = CONFIG.COLORS.PLAYER;
+                else color = CONFIG.COLORS.PLAYER_BUILDING;
+            } else if (owner === 'enemy') {
+                if (['Villager', 'Soldier'].includes(type)) color = CONFIG.COLORS.ENEMY;
+                else color = CONFIG.COLORS.ENEMY_BUILDING;
+            } else {
+                color = CONFIG.COLORS.GAIA;
+            }
+
+            const mesh = AssetFactory.create(type, owner, color);
+            mesh.position.copy(pos);
+
+            // Adjust Y for specific models
+            if (type === 'Villager') pos.y = 1.1;
+            else if (type === 'Soldier') pos.y = 1.5;
+            else if (type === 'Tree') pos.y = 3;
+            else if (type === 'GoldMine' || type === 'BerryBush') pos.y = 1.5;
+            else if (type === 'OilSeep') pos.y = 0.25;
+            else pos.y = 0; // Buildings
+
+            mesh.position.y = pos.y;
+            mesh.userData = { isEditorObject: true };
+            scene.add(mesh);
+
+            const objData = {
+                id: ++editorState.idCounter,
+                type: type,
+                owner: owner,
+                position: { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z },
+                mesh: mesh
+            };
+            editorState.objects.push(objData);
+        }
+
+        function deleteObjectByMesh(mesh) {
+            const index = editorState.objects.findIndex(o => o.mesh === mesh);
+            if (index !== -1) {
+                scene.remove(mesh);
+                editorState.objects.splice(index, 1);
+                showToast("Deleted");
+            }
+        }
+
+        // --- UI LOGIC ---
+        window.setTool = function(toolName) {
+            editorState.tool = toolName;
+            editorState.draggedObject = null;
+            document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(`tool-${toolName}`).classList.add('active');
+            updateGhost();
+        };
+
+        window.setOwner = function(ownerName) {
+            editorState.owner = ownerName;
+            document.querySelectorAll('.owner-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(`owner-${ownerName}`).classList.add('active');
+            updateGhost();
+        };
+
+        function createPalette() {
+            const container = document.getElementById('palette');
+            PALETTE_ITEMS.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'palette-item';
+                div.innerText = item.type;
+                div.onclick = () => {
+                    editorState.selectedType = item.type;
+                    document.querySelectorAll('.palette-item').forEach(el => el.classList.remove('active'));
+                    div.classList.add('active');
+                    updateGhost();
+                };
+                container.appendChild(div);
+            });
+            // Default select
+            container.children[0].classList.add('active');
+        }
+
+        function updateGhost() {
+            scene.remove(ghostMesh);
+            ghostMesh = new THREE.Group();
+            ghostMesh.visible = true;
+
+            let color;
+            if (editorState.owner === 'player') color = CONFIG.COLORS.PLAYER;
+            else if (editorState.owner === 'enemy') color = CONFIG.COLORS.ENEMY;
+            else color = CONFIG.COLORS.GAIA;
+
+            // If it's a building and player, tint it building color
+            if (editorState.owner !== 'gaia' && 
+!['Villager', 'Soldier', 'Tree', 'GoldMine', 'BerryBush', 'OilSeep'].includes(editorState.selectedType)
+) {
+                 color = editorState.owner === 'player' ? CONFIG.COLORS.PLAYER_BUILDING : CONFIG.COLORS.ENEMY_BUILDING;
+            }
+
+            const mat = new THREE.MeshBasicMaterial({ color: CONFIG.COLORS.GHOST, wireframe: true, transparent: true, opacity: 0.5 });
+            const mesh = AssetFactory.create(editorState.selectedType, editorState.owner, color, mat);
+            ghostMesh.add(mesh);
+            scene.add(ghostMesh);
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.innerText = msg;
+            t.classList.add('show');
+            setTimeout(() => t.classList.remove('show'), 2000);
+        }
+
+        // --- GENERATION & IO ---
+        window.generateResources = function() {
+            // Clear old resources only? No, just add new ones.
+            for(let i=0; i<30; i++) {
+                const x = (Math.random() - 0.5) * 300;
+                const z = (Math.random() - 0.5) * 300;
+                const type = Math.random() > 0.8 ? 'GoldMine' : 'Tree';
+                
+                // Temporarily change state to place
+                const prevType = editorState.selectedType;
+                const prevOwner = editorState.owner;
+                
+                editorState.selectedType = type;
+                editorState.owner = 'gaia';
+                
+                addObject(new THREE.Vector3(x, 0, z));
+                
+                // Restore
+                editorState.selectedType = prevType;
+                editorState.owner = prevOwner;
+            }
+            updateGhost(); // refresh visual
+            showToast("Resources Generated");
+        };
+
+        window.clearMap = function() {
+            if(!confirm("Clear entire map?")) return;
+            editorState.objects.forEach(o => scene.remove(o.mesh));
+            editorState.objects = [];
+            editorState.idCounter = 0;
+            showToast("Map Cleared");
+        };
+
+        window.saveMap = function() {
+            const data = editorState.objects.map(o => ({
+                type: o.type,
+                owner: o.owner,
+                position: { x: parseFloat(o.position.x.toFixed(2)), y: parseFloat(o.position.y.toFixed(2)), z: parseFloat(o.position.z.toFixed(2)) }
+            }));
+            
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'custom_map.json';
+            a.click();
+            showToast("Map Saved!");
+        };
+
+        window.loadMap = function(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    // Clear current
+                    editorState.objects.forEach(o => scene.remove(o.mesh));
+                    editorState.objects = [];
+                    
+                    // Load new
+                    data.forEach(item => {
+                        const type = item.type;
+                        const owner = item.owner;
+                        
+                        let color;
+                        if (owner === 'player') {
+                            if (['Villager', 'Soldier'].includes(type)) color = CONFIG.COLORS.PLAYER;
+                            else color = CONFIG.COLORS.PLAYER_BUILDING;
+                        } else if (owner === 'enemy') {
+                            if (['Villager', 'Soldier'].includes(type)) color = CONFIG.COLORS.ENEMY;
+                            else color = CONFIG.COLORS.ENEMY_BUILDING;
+                        } else {
+                            color = CONFIG.COLORS.GAIA;
+                        }
+
+                        const mesh = AssetFactory.create(type, owner, color);
+                        mesh.position.set(item.position.x, item.position.y, item.position.z);
+                        scene.add(mesh);
+
+                        editorState.objects.push({
+                            id: ++editorState.idCounter,
+                            type: type,
+                            owner: owner,
+                            position: item.position,
+                            mesh: mesh
+                        });
+                    });
+                    showToast("Map Loaded!");
+                } catch (err) {
+                    alert("Error loading map: " + err);
+                }
+            };
+            reader.readAsText(file);
+        };
+
+        // --- INIT ---
+        createPalette();
+        updateGhost();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            const aspect = window.innerWidth / window.innerHeight;
+            camera.left = -d * aspect; camera.right = d * aspect;
+            camera.top = d; camera.bottom = -d;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+    </script>
+</body>
+</html>
+```
