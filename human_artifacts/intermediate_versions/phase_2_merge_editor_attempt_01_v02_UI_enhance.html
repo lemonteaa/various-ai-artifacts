@@ -1010,7 +1010,7 @@
                 <button class="btn btn--menu">Multiplayer</button>
                 <button class="btn btn--menu" onclick="document.getElementById('file-input').click()">Load Custom Map</button>
                 <input type="file" id="file-input" accept=".json" style="display: none;" onchange="Game.startCustom(this)">
-                <button class="btn btn--menu" onclick="UIExt.showPage('map-editor-screen')">Map Editor</button>
+                <button class="btn btn--menu" onclick="UIExt.startEditor()">Map Editor</button>
                 <button class="btn btn--menu">Settings</button>
                 <button class="btn btn--menu">Credits</button>
                 <div style="height: 10px;"></div>
@@ -4722,6 +4722,11 @@ class MapGeneratorV2 {
                 UIExt.renderTechTree();
             },
 
+            startEditor: () => {
+                editor.init();
+                UIExt.showPage('map-editor-screen');
+            },
+
             showPage: (pageId) => {
                 // UPDATED: Use 'screen' instead of 'full-page'
                 document.querySelectorAll('.screen').forEach(p => p.classList.remove('active'));
@@ -5774,7 +5779,7 @@ genRandomMap() {
 
 const editor = new ScenarioEditor('.editor-root');
 editor.attachThreeEngine({ scene: scene, camera: camera, renderer: renderer });
-editor.init();
+//editor.init();
 
 window.Editor = editor;
 
