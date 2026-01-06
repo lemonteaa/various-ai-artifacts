@@ -1,0 +1,4467 @@
+{
+  "meta": {
+    "name": "Colony mode Concept Test",
+    "description": "Testing a new type of scenario",
+    "version": "1.0",
+    "timestamp": "2026-01-05T22:41:21.125Z"
+  },
+  "scenario": {
+    "players": [
+      {
+        "id": 0,
+        "name": "Player",
+        "colorIdx": 0,
+        "civ": "Romans",
+        "type": "Human",
+        "team": 1,
+        "diplomacy": {
+          "0": "self",
+          "1": "enemy",
+          "2": "ally",
+          "99": "neutral"
+        }
+      },
+      {
+        "id": 1,
+        "name": "Opponent",
+        "colorIdx": 1,
+        "civ": "Barbarians",
+        "type": "AI",
+        "team": 2,
+        "diplomacy": {
+          "0": "enemy",
+          "1": "self",
+          "2": "ally",
+          "99": "neutral"
+        }
+      },
+      {
+        "id": 2,
+        "name": "Colonies",
+        "colorIdx": 2,
+        "civ": "Egyptians",
+        "type": "None",
+        "team": null,
+        "diplomacy": {
+          "0": "neutral",
+          "1": "neutral",
+          "2": "self"
+        }
+      }
+    ],
+    "objectives": [
+      {
+        "id": 1,
+        "text": "Control and hold 5 out of 6 colonies for 3 minutes.",
+        "primary": true
+      }
+    ],
+    "bans": [],
+    "texts": {
+      "hint": "Build a strong economy",
+      "scoutReport": "Resources nearby.",
+      "narration": ["It's the age of colonization.", "The great powers wrestle on the world stage for control of key resources.", "Whoever control more, dominates and hold power."],
+      "postGameNarration": [
+        "Victory!",
+        "History will remember you."
+      ]
+    },
+    "script": "function colonyIdToType(cid) {\n    if (cid === 'c1') { return ['food', 'gold']; }\n    if (cid === 'c2') { return ['soldier']; }\n    if (cid === 'c3') { return ['archer']; }\n    if (cid === 'c4') { return ['wood']; }\n    if (cid === 'c5') { return ['gold']; }\n    if (cid === 'c6') { return ['soldier', 'archer']; }\n}\nfunction colonyNeedResource(cid) {\n    return ['c2', 'c3', 'c6'].includes(cid);\n}\n\nconst colonySupplyTimerMax = 12;\n\nScenario.scriptBeginGame = () => {\n\n\/\/c1: central (food + gold), c2, c3: military, c4: econ (wood), c5: econ (gold), c6: military\n\nconst colonies = GameLogic.findAllWithMetadataKey(\"colony\").map(e => ({ colonyType: colonyIdToType(e.metadata.colony), needRes: colonyNeedResource(e.metadata.colony), center: e.position, heldBy: 'None', supplyTimer: colonySupplyTimerMax }));\nconsole.log(colonies);\n\n\/\/Custom AI\nAI.colonyLoc = colonies.map(c => c.center);\n\nAI.rules = [];\n\nconst customAI = () => {\nconst playerId = 1;\nconst radius = 40;\n\n\/\/Credit: https:\/\/gist.github.com\/janosh\/099bd8061f15e3fbfcc19be0e6b670b9\nconst argFact = (compareFn) => (array) => array.map((el, idx) => [el, idx]).reduce(compareFn)[1];\n\nconst argMax = argFact((min, el) => (el[0] > min[0] ? el : min));\nconst argMin = argFact((max, el) => (el[0] < max[0] ? el : max));\n\nconst army = state.entities.filter(e => e.owner === playerId && (e.type === CONFIG.ENTITIES.Soldier.type || e.type === CONFIG.ENTITIES.Archer.type) && !e.dead);\nlet armyDist = [[], [], [], [], [], []];\nlet outside = [];\n\narmy.forEach(e => {\n    let used = false;\n    AI.colonyLoc.forEach((center, idx) => {\n        if (e.position.distanceTo(center) <= radius) {\n            used = true;\n            armyDist[idx].push(e);\n        }\n    });\n    if (!used) {\n        outside.push(e);\n    }\n});\n\nconst targetCol = argMin( armyDist.map(a => a.length) );\n\nlet utilize = outside;\nfor (const colArmy of armyDist) {\n    if (colArmy.length >= 3) {\n        utilize = utilize.concat( colArmy.slice(3, colArmy.length) );\n    }\n}\n\nmoveToInFormation(utilize, AI.colonyLoc[targetCol].clone().add(new THREE.Vector3(4,0,0)) );\n};\n\nsetInterval(customAI, 15 * 1000);\n\n\n\nconst colonyMesh = [];\n\nfor (const col of colonies) {\n\n        const radius = 40;\n        const height = 0.3; \n        \/\/ Use CircleGeometry for a flat look or Cylinder for volume\n        \/\/ Cylinder looks better as a \"zone\" on the ground\n        const geometry = new THREE.CylinderGeometry(radius, radius, height, 32);\n        \n        \/\/ Change color based on tool\n        const color = 0x808080;\n\n        const material = new THREE.MeshBasicMaterial({ \n            color: color, \n            transparent: true, \n            opacity: 0.3,\n            side: THREE.DoubleSide\n        });\n        const areaMesh = new THREE.Mesh(geometry, material);\n\n        areaMesh.position.set(col.center.x, col.center.y, col.center.z);\n\n        scene.add(areaMesh);\n\n        colonyMesh.push(areaMesh);\n\n}\n\nScenario.scriptState = {\n    colonies: colonies,\n    colonyMesh: colonyMesh,\n    playerId: 0,\n    enemyId: 1\n};\n\nScenario.refreshObjectivesGameUI();\n}\n\nScenario.checkRes = (heldBy, colonyType) => {\n\nlet food = 0;\nlet wood = 0;\nlet gold = 0;\n\n\nif (colonyType.includes('soldier') && colonyType.includes('archer')) {\n    \/\/ combined army => 160, 100, 40\n    food = 160; wood = 100; gold = 40;\n}\nelse if (colonyType.includes('soldier')) {\n    \/\/infantry:60f 20g x 4 => 240,0,80\n    food = 240; wood = 0; gold = 80;\n} else {\n    \/\/archer: 20f 50w x 4 => 80, 200, 0\n    food = 80; wood = 200; gold = 0;\n}\n\nconst idx = (heldBy === 'Player') ? 0 : 1;\n\nconst existRes = state.players[idx].resources;\n\nreturn (existRes.food < food) || (existRes.wood < wood) || (existRes.gold < gold);\n};\n\nScenario.actionSupply = (heldBy, colonyType, center) => {\n\nconst north = new THREE.Vector3(0,0,4);\nconst east = new THREE.Vector3(4,0,0);\nconst south = new THREE.Vector3(0,0,-4);\nconst west = new THREE.Vector3(-4,0,0);\n\nlet food = 0;\nlet wood = 0;\nlet gold = 0;\n\nlet infos;\n\nconst idx = (heldBy === 'Player') ? 0 : 1;\n\nconst existRes = state.players[idx].resources;\n\n\nif (colonyType.includes('food') || colonyType.includes('wood') || colonyType.includes('gold')) {\n\nif (colonyType.includes('food') && colonyType.includes('gold')) { existRes.food += 250; existRes.gold += 150; return; }\nif (colonyType.includes('wood')) { existRes.wood += 400; return; }\n\nexistRes.gold += 200; return;\n\n}\n\nif (colonyType.includes('soldier') && colonyType.includes('archer')) {\n    \/\/ combined army => 160, 100, 40\n    food = 160; wood = 100; gold = 40;\n    infos = [{ type: 'Soldier', disp: north}, { type: 'Soldier', disp: east}, { type: 'Archer', disp: south}, { type: 'Archer', disp: west}];\n}\nelse if (colonyType.includes('soldier')) {\n    \/\/infantry:60f 20g x 4 => 240,0,80\n    food = 240; wood = 0; gold = 80;\n    infos = [{ type: 'Soldier', disp: north}, { type: 'Soldier', disp: east}, { type: 'Soldier', disp: south}, { type: 'Soldier', disp: west}];\n} else {\n    \/\/archer: 20f 50w x 4 => 80, 200, 0\n    food = 80; wood = 200; gold = 0;\n    infos = [{ type: 'Archer', disp: north}, { type: 'Archer', disp: east}, { type: 'Archer', disp: south}, { type: 'Archer', disp: west}];\n}\n\n\n\nexistRes.food -= food;\nexistRes.wood -= wood;\nexistRes.gold -= gold;\n\n\nfor (const info of infos) {\n    GameLogic.createUnit(info.type, idx, center.clone().add(info.disp), true);\n}\n\n};\n\nScenario.scriptExec = () => {\n    const radius = 40;\n\n    const cstate = Scenario.scriptState;\n    if (cstate.isExecing) { return; }\n\n\/\/e.state === 'IDLE'\nconst playerArmy = state.entities.filter(e => e.owner === cstate.playerId && (e.type === CONFIG.ENTITIES.Soldier.type || e.type === CONFIG.ENTITIES.Archer.type) && !e.dead);\nconst enemyArmy = state.entities.filter(e => e.owner === cstate.enemyId && (e.type === CONFIG.ENTITIES.Soldier.type || e.type === CONFIG.ENTITIES.Archer.type) && !e.dead);\n\ncstate.colonies.forEach((col, idx) => {\n\n    const pCount = playerArmy.filter(e => e.position.distanceTo(col.center) <= radius ).length;\n    const eCount = enemyArmy.filter(e => e.position.distanceTo(col.center) <= radius ).length;\n\n    if (pCount >= 4 && eCount <= 2) {\n        if (col.heldBy !== 'Player') {\n            UI.showDialog(\"Commander\", \"We've occupied a colony.\");\n            col.heldBy = 'Player';\n            col.supplyTimer = colonySupplyTimerMax + 1;\n        }\n    }\n    if (eCount >= 4 && pCount <= 2) {\n        if (col.heldBy !== 'Enemy') {\n            UI.showDialog(\"Commander\", \"We've lost a colony.\");\n            col.heldBy = 'Enemy';\n            col.supplyTimer = colonySupplyTimerMax + 1;\n        }\n    }\n\n    if (col.heldBy !== 'None') {\n        col.supplyTimer -= 1;\n    }\n\n    \/\/Update visuals\n    cstate.colonyMesh[idx].material.color = (col.heldBy === 'Enemy') ? 0xff0000 : 0x0000ff;\n\n    \/\/Supply\n    if (col.supplyTimer <= 0) {\n        let queueBlocked = false;\n        if (col.needRes) {\n            queueBlocked = Scenario.checkRes(col.heldBy, col.colonyType);\n        }\n        if (!queueBlocked) {\n\n            Scenario.actionSupply(col.heldBy, col.colonyType, col.center);\n\n            UI.notify(\"Colony supply arrived\");\n            col.supplyTimer = colonySupplyTimerMax;\n        } else {\n            UI.notify(\"Colony production blocked due to insufficient resources.\");\n        }\n    }\n\n});\n\nScenario.objectives.additionalNotes = `Controled: ${cstate.colonies.filter(c => c.heldBy === 'Player').length}\/6 colonies.`;\nScenario.refreshObjectivesGameUI();\n\n};"
+  },
+  "map": {
+    "entities": [
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 118.83093718288768,
+          "y": 0.10000000000000284,
+          "z": 80.30933223898697
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 124.28686573645388,
+          "y": 0.10000000000000284,
+          "z": 73.3177507356936
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 115.80404695866221,
+          "y": 0.10000000000001712,
+          "z": 75.71709645800543
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 114.23276098386843,
+          "y": 0.10000000000001712,
+          "z": 84.6294002001818
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 123.36398206660967,
+          "y": 0.10000000000001712,
+          "z": 84.40975385763652
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 123.54457740088442,
+          "y": 0.10000000000001737,
+          "z": 70.8704197967458
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 128.27214711627133,
+          "y": 0.10000000000001737,
+          "z": 83.97866304182114
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 135.7763661240632,
+          "y": 0.10000000000001737,
+          "z": 81.81896865780733
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 149.9868765483761,
+          "y": 0.10000000000001749,
+          "z": 81.59021236671344
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 153.371868844173,
+          "y": 0.10000000000001749,
+          "z": 82.92573514287226
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 146.10657645599508,
+          "y": 0.10000000000001749,
+          "z": 74.67166889090768
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 157.92662692195788,
+          "y": 0.10000000000001011,
+          "z": 83.39138687180295
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 158.1319264800048,
+          "y": 0.10000000000001011,
+          "z": 74.16279216317149
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 151.0809041897715,
+          "y": 0.10000000000001011,
+          "z": 85.54407015305704
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 174.311895859399,
+          "y": 0.10000000000001746,
+          "z": 78.89173576341332
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 163.18157389868225,
+          "y": 0.10000000000001746,
+          "z": 82.4286041554822
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 167.3944951643326,
+          "y": 0.10000000000001746,
+          "z": 72.65306985418505
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 172.6232336728646,
+          "y": 0.10000000000001062,
+          "z": 82.38829357208004
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 180.24553000925602,
+          "y": 0.10000000000001062,
+          "z": 81.64881045647122
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 170.7573008427695,
+          "y": 0.10000000000001062,
+          "z": 74.51828366540755
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 178.6002226155714,
+          "y": 0.10000000000001788,
+          "z": 72.12363598648034
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 175.2644563411072,
+          "y": 0.10000000000001788,
+          "z": 81.19152877887845
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 184.78890189087488,
+          "y": 0.10000000000001091,
+          "z": 74.16978072766523
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 190.7232025214121,
+          "y": 0.10000000000001091,
+          "z": 76.17057312727783
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 192.92256962656515,
+          "y": 0.10000000000001101,
+          "z": 75.58309780267834
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 188.38153809788167,
+          "y": 0.10000000000001101,
+          "z": 75.9618661905725
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 193.50829477138495,
+          "y": 0.10000000000001101,
+          "z": 79.53951654195323
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 58.815966900226925,
+          "y": 0.10000000000001397,
+          "z": 124.26053911287805
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 56.31469255505979,
+          "y": 0.10000000000001397,
+          "z": 132.15878554508296
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 48.641987613930155,
+          "y": 0.10000000000001397,
+          "z": 125.25656228502774
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 53.30051552154318,
+          "y": 0.10000000000001422,
+          "z": 134.5811773050755
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 59.5140645585893,
+          "y": 0.10000000000001422,
+          "z": 135.31153308942515
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 55.32146985863189,
+          "y": 0.10000000000001484,
+          "z": 128.83760802612838
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 59.45133645461549,
+          "y": 0.10000000000003124,
+          "z": 139.69224358278626
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 57.2748669626844,
+          "y": 0.10000000000003124,
+          "z": 135.8227741145248
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 56.36402046440489,
+          "y": 0.10000000000002976,
+          "z": 173.80961894633123
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 65.37200500409884,
+          "y": 0.10000000000002976,
+          "z": 165.1618324069959
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 54.17810012328337,
+          "y": 0.10000000000002976,
+          "z": 162.6940429081187
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 67.83605347305428,
+          "y": 0.10000000000003297,
+          "z": 177.41867040762554
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 65.61288923263297,
+          "y": 0.10000000000003297,
+          "z": 186.5551624593865
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 55.225649252501434,
+          "y": 0.10000000000003297,
+          "z": 186.90606681318087
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 57.38171210764155,
+          "y": 0.10000000000002707,
+          "z": 185.7069135863976
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 63.01101444194065,
+          "y": 0.10000000000002707,
+          "z": 195.36127090128264
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 56.311258045543006,
+          "y": 0.10000000000002707,
+          "z": 188.98921914844837
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 68.31290740206039,
+          "y": 0.10000000000003602,
+          "z": 199.77487650550142
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 62.8696926970488,
+          "y": 0.10000000000003602,
+          "z": 188.95952025911163
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 59.42823131329274,
+          "y": 0.10000000000003602,
+          "z": 189.63155144383225
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 53.234000550705076,
+          "y": 0.10000000000001788,
+          "z": 147.7105059905521
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 60.42180519215008,
+          "y": 0.10000000000001788,
+          "z": 148.88151098364725
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 57.08738572952415,
+          "y": 0.10000000000003281,
+          "z": 150.4224344638468
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 57.45182613453864,
+          "y": 0.10000000000003427,
+          "z": 161.7868828970118
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 57.59705359261994,
+          "y": 0.10000000000002768,
+          "z": 152.41284926460096
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 62.54857105490361,
+          "y": 0.10000000000002768,
+          "z": 161.2669194703589
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 56.25756868822125,
+          "y": 0.10000000000002768,
+          "z": 154.11517218485585
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -5.5195910718510115,
+          "y": 0.10000000000001223,
+          "z": 61.932492054440765
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -0.5088135625983439,
+          "y": 0.10000000000001223,
+          "z": 62.36753800694005
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -1.2579363416487181,
+          "y": 0.10000000000001223,
+          "z": 50.21080041804473
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 4.352403824300559,
+          "y": 0.10000000000001219,
+          "z": 56.8777715031582
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 4.7983467525996115,
+          "y": 0.10000000000001219,
+          "z": 53.67103862187825
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 8.111166959215145,
+          "y": 0.10000000000001072,
+          "z": 47.331242850155554
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 7.141825108987572,
+          "y": 0.10000000000001072,
+          "z": 53.84452172533053
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 8.529978936065556,
+          "y": 0.10000000000001072,
+          "z": 44.05377916812496
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 15.343458970569241,
+          "y": 0.10000000000000893,
+          "z": 40.81072927898772
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 11.006082709651524,
+          "y": 0.10000000000000893,
+          "z": 34.86605116818076
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 18.24406845662308,
+          "y": 0.10000000000000893,
+          "z": 45.92030663545235
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 34.60263354445121,
+          "y": 0.1000000000000005,
+          "z": 35.67942886565171
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 22.861473506724018,
+          "y": 0.1000000000000005,
+          "z": 30.238961234556616
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 30.97255960217464,
+          "y": 0.1000000000000005,
+          "z": 33.3702801520142
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 31.333893379455027,
+          "y": 0.09999999999999916,
+          "z": 19.770651061805836
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 27.555542575397475,
+          "y": 0.09999999999999916,
+          "z": 32.703869523970795
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 40.60242523564333,
+          "y": 0.09999999999999916,
+          "z": 32.06826879804696
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 33.97698407327141,
+          "y": 0.09999999999999767,
+          "z": 16.137377856004665
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 42.6052765768981,
+          "y": 0.09999999999999767,
+          "z": 25.083452085353073
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 40.44902710259498,
+          "y": 0.09999999999999767,
+          "z": 25.79084889213471
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 49.88946003939731,
+          "y": 0.09999999999999526,
+          "z": 11.501184549709777
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 47.09287533780059,
+          "y": 0.09999999999999526,
+          "z": 16.07890563065136
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 42.179084700817,
+          "y": 0.09999999999999526,
+          "z": 5.889054224575732
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 47.64734842881826,
+          "y": 0.10000000000000059,
+          "z": 3.126154382116294
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 59.479875671301556,
+          "y": 0.10000000000000059,
+          "z": 4.98132561416814
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 55.57307647657319,
+          "y": 0.10000000000000059,
+          "z": -5.582793371579184
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 54.28909661014741,
+          "y": 0.09999999999999978,
+          "z": -7.409801432997257
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 51.24801520185086,
+          "y": 0.09999999999999978,
+          "z": -9.107076426303028
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 64.66605834717879,
+          "y": 0.09999999999999978,
+          "z": 1.3541565949498426
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -99.1197819920282,
+          "y": 0.09999999999998947,
+          "z": 15.46327207398117
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -105.35033576443574,
+          "y": 0.09999999999998947,
+          "z": 17.40210288903476
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -96.67020151254034,
+          "y": 0.09999999999998947,
+          "z": 15.77254437119859
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -103.76687987791924,
+          "y": 0.10000000000000346,
+          "z": 21.327909866437558
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -103.20786560537543,
+          "y": 0.10000000000000346,
+          "z": 6.887664500239929
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -94.5282299923726,
+          "y": 0.10000000000000034,
+          "z": 2.314232811545642
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -102.38351585427225,
+          "y": 0.10000000000000034,
+          "z": 3.417818434629538
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -103.3416065761482,
+          "y": 0.10000000000000034,
+          "z": -5.551798630790717
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -103.2667437996049,
+          "y": 0.09999999999998238,
+          "z": -16.400780614125253
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -95.29565466714996,
+          "y": 0.09999999999998238,
+          "z": -7.361244791869572
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -93.70617191968978,
+          "y": 0.09999999999998238,
+          "z": -22.0618221541487
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -99.39498642178668,
+          "y": 0.09999999999999509,
+          "z": -31.01639039523405
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -105.08794998902904,
+          "y": 0.09999999999999509,
+          "z": -23.218723624504314
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -91.22664757016618,
+          "y": 0.0999999999999937,
+          "z": -35.17439154986527
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -97.50425587765999,
+          "y": 0.0999999999999937,
+          "z": -20.233981172492555
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -101.9398813262395,
+          "y": 0.0999999999999937,
+          "z": -35.165197639334245
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -98.47540782214624,
+          "y": 0.09999999999996351,
+          "z": -39.29037116387863
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -92.6710823179631,
+          "y": 0.09999999999996351,
+          "z": -37.463895638475776
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -100.52226685880808,
+          "y": 0.09999999999996351,
+          "z": -42.81754974704149
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -35.96103873048969,
+          "y": 0.09999999999997111,
+          "z": -69.18964040557704
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -30.0584310339657,
+          "y": 0.09999999999997111,
+          "z": -56.758294783584766
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -24.839061233307532,
+          "y": 0.09999999999997111,
+          "z": -72.17192663595053
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -34.13973555174175,
+          "y": 0.09999999999997115,
+          "z": -58.47209931997622
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -27.246865310293984,
+          "y": 0.09999999999997115,
+          "z": -73.67719659903348
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -21.554351836335627,
+          "y": 0.09999999999997115,
+          "z": -62.62265568803205
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -11.181026107032643,
+          "y": 0.09999999999998642,
+          "z": -53.955714397979214
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -21.128775887402007,
+          "y": 0.09999999999998642,
+          "z": -68.06009538354589
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -11.050951758770267,
+          "y": 0.09999999999998642,
+          "z": -60.849867413882414
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 3.9733393478740253,
+          "y": 0.09999999999998707,
+          "z": -51.98911165892979
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 7.524288257068349,
+          "y": 0.09999999999998707,
+          "z": -61.65210514352466
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 16.213724749967714,
+          "y": 0.09999999999998747,
+          "z": -60.9294471783177
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 26.88705799133532,
+          "y": 0.09999999999998747,
+          "z": -49.551361338547544
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 25.02214674340142,
+          "y": 0.09999999999998747,
+          "z": -55.681864665086174
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 46.28211966191086,
+          "y": 0.09999999999997315,
+          "z": -65.31963484712135
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 47.442214651038455,
+          "y": 0.09999999999997315,
+          "z": -55.967887411544766
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 37.35066490675606,
+          "y": 0.09999999999997315,
+          "z": -54.51173853435014
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 62.04305782718585,
+          "y": 0.09999999999998739,
+          "z": -51.29973548198356
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 54.69089871486388,
+          "y": 0.09999999999998739,
+          "z": -51.98111654812619
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 61.45258535600459,
+          "y": 0.09999999999998739,
+          "z": -60.92883660338947
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 75.42988268274894,
+          "y": 0.0999999999999729,
+          "z": -59.00582480251241
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 63.81927565651964,
+          "y": 0.0999999999999729,
+          "z": -57.87021206452132
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 71.62603992968909,
+          "y": 0.09999999999998645,
+          "z": -58.9501006337516
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 79.0588999966709,
+          "y": 0.09999999999998645,
+          "z": -69.85506630503838
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 67.00446963534566,
+          "y": 0.09999999999998645,
+          "z": -61.73240135004211
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 81.97836442331263,
+          "y": 0.09999999999997196,
+          "z": -69.88917736551505
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 71.80333020620478,
+          "y": 0.09999999999997196,
+          "z": -67.3489007105114
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 81.76058515006412,
+          "y": 0.09999999999997196,
+          "z": -67.84690900623299
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 83.99634137703607,
+          "y": 0.09999999999997188,
+          "z": -69.26927750665499
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 88.78692007490663,
+          "y": 0.09999999999997188,
+          "z": -67.97355776529062
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 83.55899830704989,
+          "y": 0.09999999999997188,
+          "z": -64.7073106161427
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 93.80729170428654,
+          "y": 0.09999999999998574,
+          "z": -62.75607239234514
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 81.17291013698389,
+          "y": 0.09999999999998574,
+          "z": -72.79172186743213
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 96.7416257900532,
+          "y": 0.09999999999998552,
+          "z": -66.48820785534429
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 83.41821084361779,
+          "y": 0.09999999999998552,
+          "z": -55.83233169214222
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 88.7724611861703,
+          "y": 0.0999999999999854,
+          "z": -58.62998919364532
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 97.86190730892868,
+          "y": 0.099999999999969,
+          "z": -77.24076144842728
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 95.47729859635237,
+          "y": 0.099999999999969,
+          "z": -78.35458854053002
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 91.70561914826183,
+          "y": 0.09999999999998266,
+          "z": -84.16112162141512
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 100.30291128553152,
+          "y": 0.09999999999998266,
+          "z": -73.58399540642658
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 98.9476848298269,
+          "y": 0.09999999999998266,
+          "z": -80.54868073039442
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 102.52565430288578,
+          "y": 0.09999999999996464,
+          "z": -104.1201658589062
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 96.07840444895638,
+          "y": 0.09999999999996464,
+          "z": -93.25681502541815
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 103.6931959008682,
+          "y": 0.09999999999996464,
+          "z": -93.67179192442669
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 115.50655868543805,
+          "y": 0.09999999999997472,
+          "z": -109.5344069955938
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 119.70596189825359,
+          "y": 0.09999999999997472,
+          "z": -112.80847935909692
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 121.5070842616806,
+          "y": 0.09999999999997472,
+          "z": -110.79338689651306
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 96.01319625819407,
+          "y": 0.09999999999996816,
+          "z": -73.72659835267211
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 95.45163331340628,
+          "y": 0.09999999999996816,
+          "z": -82.04318487603558
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 89.58959338553271,
+          "y": 0.09999999999996809,
+          "z": -71.42077924866835
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 92.71742905323399,
+          "y": 0.09999999999996809,
+          "z": -75.5329178252201
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 101.31004121587998,
+          "y": 0.09999999999996809,
+          "z": -84.91508475793161
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 108.10470438125586,
+          "y": 0.09999999999996485,
+          "z": -100.41691768230866
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 99.28494772616695,
+          "y": 0.09999999999996485,
+          "z": -92.66429138987775
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 104.11422729727038,
+          "y": 0.09999999999996376,
+          "z": -105.69182089121472
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 112.86178307448785,
+          "y": 0.09999999999996376,
+          "z": -93.08879543758258
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 105.77476475032067,
+          "y": 0.09999999999996376,
+          "z": -92.5444337933196
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 104.72512778484558,
+          "y": 0.09999999999997679,
+          "z": -98.49853222005706
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 110.58264460188391,
+          "y": 0.09999999999997679,
+          "z": -111.01768860266475
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 103.48632281656757,
+          "y": 0.09999999999997679,
+          "z": -111.09743245856939
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 104.69727693054938,
+          "y": 0.09999999999996168,
+          "z": -102.79941121436987
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 110.37340119931443,
+          "y": 0.09999999999996168,
+          "z": -106.74209069171896
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 105.53035633037491,
+          "y": 0.09999999999997553,
+          "z": -114.55145594987692
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 100.92417426894471,
+          "y": 0.09999999999997553,
+          "z": -111.84701092398998
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -102.84700235246999,
+          "y": 0.10000000000000657,
+          "z": 99.08416114664823
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -109.27756794206613,
+          "y": 0.10000000000000657,
+          "z": 87.41381091146597
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -97.21216980573773,
+          "y": 0.10000000000002247,
+          "z": 113.46854729385909
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -103.72312859388933,
+          "y": 0.10000000000002247,
+          "z": 95.79201835867914
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -86.94112711625806,
+          "y": 0.10000000000001137,
+          "z": 126.40574558359474
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -87.2455645836705,
+          "y": 0.10000000000001137,
+          "z": 120.04929936471373
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -79.81303021762182,
+          "y": 0.10000000000001258,
+          "z": 120.37368265298745
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -60.26347949924926,
+          "y": 0.10000000000001258,
+          "z": 130.9675735784026
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -38.88689966927819,
+          "y": 0.10000000000002757,
+          "z": 116.05020456133929
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -34.97821594226142,
+          "y": 0.10000000000002757,
+          "z": 125.45060377624776
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -46.88273585978877,
+          "y": 0.10000000000002772,
+          "z": 127.41590117264707
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -43.67095002939551,
+          "y": 0.10000000000002772,
+          "z": 140.2825112053776
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -20.306194418201244,
+          "y": 0.10000000000002755,
+          "z": 113.82332154566262
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -28.446266551213796,
+          "y": 0.10000000000002755,
+          "z": 127.90022176748549
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -96.13081678144339,
+          "y": 0.09999999999999104,
+          "z": 21.198290964986352
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -147.11099100713022,
+          "y": 0.10000000000001474,
+          "z": 67.84012615672168
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -139.52316291201592,
+          "y": 0.10000000000001474,
+          "z": 63.0998676268841
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -131.61450015383295,
+          "y": 0.10000000000001587,
+          "z": 60.03082405056802
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -134.55914714347847,
+          "y": 0.10000000000001587,
+          "z": 85.30095539358204
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -129.63226802460886,
+          "y": 0.10000000000001777,
+          "z": 65.61258291460967
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -114.94609877674563,
+          "y": 0.10000000000001777,
+          "z": 65.69300524367881
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -129.38252317474914,
+          "y": 0.10000000000001523,
+          "z": 61.126872304196226
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -122.53655949213064,
+          "y": 0.10000000000001731,
+          "z": 89.65896837340168
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -135.66840659266452,
+          "y": 0.10000000000001731,
+          "z": 78.57129459126936
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -117.54491392187461,
+          "y": 0.100000000000018,
+          "z": 64.3209410112333
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -120.92602805743319,
+          "y": 0.100000000000018,
+          "z": 77.51397439441217
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -177.8737661193736,
+          "y": 0.10000000000000207,
+          "z": 20.793722302681502
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -189.731581749899,
+          "y": 0.10000000000000207,
+          "z": 17.009176915935196
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -178.6168130606664,
+          "y": 0.09999999999998795,
+          "z": -5.680564105730676
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -156.31252284249777,
+          "y": 0.0999999999999887,
+          "z": 5.7258826637715705
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -158.51254736235407,
+          "y": 0.0999999999999887,
+          "z": 21.594330506598194
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -160.69810274880825,
+          "y": 0.09999999999998871,
+          "z": 10.944013242279304
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -168.0763615616435,
+          "y": 0.09999999999998871,
+          "z": 17.40039893299085
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -171.7363052837992,
+          "y": 0.10000000000000282,
+          "z": 9.91658625002619
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -156.57587309357342,
+          "y": 0.10000000000000282,
+          "z": 19.04483752848777
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -164.5682131319278,
+          "y": 0.0999999999999886,
+          "z": 15.00520525128469
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -145.40949439718477,
+          "y": 0.0999999999999886,
+          "z": 5.100953822191839
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -182.18302441717876,
+          "y": 0.0999999999999805,
+          "z": -93.00108999761828
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -189.76605793404286,
+          "y": 0.0999999999999805,
+          "z": -86.06739796063471
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -177.07326768589212,
+          "y": 0.0999999999999805,
+          "z": -89.551848286011
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -184.21203804619523,
+          "y": 0.09999999999998059,
+          "z": -87.54671186552756
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -185.76776035464323,
+          "y": 0.09999999999998059,
+          "z": -93.91356253459273
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -183.43126670290346,
+          "y": 0.09999999999998059,
+          "z": -79.76519449030994
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -173.80047385940946,
+          "y": 0.099999999999952,
+          "z": -85.99707081074804
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -178.50636885141842,
+          "y": 0.099999999999952,
+          "z": -84.98421550442562
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -172.55500419549168,
+          "y": 0.099999999999952,
+          "z": -80.96956450307754
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -151.13900717962164,
+          "y": 0.09999999999997938,
+          "z": -100.80478208873643
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -158.56264489004442,
+          "y": 0.09999999999997938,
+          "z": -88.12570754467944
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -155.27545568240205,
+          "y": 0.09999999999997938,
+          "z": -97.79051071586326
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -129.74345384130152,
+          "y": 0.0999999999999783,
+          "z": -93.81139499791982
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -132.35672532490716,
+          "y": 0.0999999999999783,
+          "z": -90.06633993931223
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -134.44927724057544,
+          "y": 0.0999999999999783,
+          "z": -104.27560172556196
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -116.45011877892004,
+          "y": 0.09999999999997743,
+          "z": -102.73863100034443
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -127.6754549174378,
+          "y": 0.09999999999997743,
+          "z": -96.9507678218341
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -124.92447758684821,
+          "y": 0.09999999999997743,
+          "z": -100.01846718121787
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -105.182557955494,
+          "y": 0.09999999999996259,
+          "z": -108.74850092217234
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -108.35494010506552,
+          "y": 0.09999999999996259,
+          "z": -112.44554055585292
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -109.57978065661622,
+          "y": 0.09999999999996259,
+          "z": -108.89133064918046
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -95.79425302897623,
+          "y": 0.09999999999997612,
+          "z": -110.40802437479361
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -109.38983822124003,
+          "y": 0.09999999999997612,
+          "z": -101.81231081520892
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -105.07459260980986,
+          "y": 0.09999999999997612,
+          "z": -106.54269574417698
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -87.44157686996452,
+          "y": 0.09999999999997562,
+          "z": -108.28815131172938
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -94.00786713881389,
+          "y": 0.09999999999997562,
+          "z": -100.28252221755474
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -88.33527875920205,
+          "y": 0.09999999999997562,
+          "z": -115.08603469886776
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -89.0072980077988,
+          "y": 0.09999999999996087,
+          "z": -109.56334165074121
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -80.71914200954251,
+          "y": 0.09999999999996087,
+          "z": -117.54398181291165
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -82.52641957954008,
+          "y": 0.09999999999996087,
+          "z": -120.73523508932567
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -72.25934155550672,
+          "y": 0.09999999999998825,
+          "z": -114.50811681879803
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -80.37050218148498,
+          "y": 0.09999999999998825,
+          "z": -121.1749211867881
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -77.91271135506747,
+          "y": 0.09999999999998825,
+          "z": -116.91984469913947
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -72.22775465084979,
+          "y": 0.09999999999995911,
+          "z": -121.65352303522036
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -81.89354493747982,
+          "y": 0.09999999999995911,
+          "z": -123.46713107347355
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -68.75493717913587,
+          "y": 0.09999999999995911,
+          "z": -124.243623420762
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -73.73218103587003,
+          "y": 0.09999999999995883,
+          "z": -128.81303385972504
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -45.257416581276225,
+          "y": 0.09999999999995753,
+          "z": -187.3983592391038
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -56.607469648766305,
+          "y": 0.09999999999995753,
+          "z": -187.95780486880287
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -55.320967424974995,
+          "y": 0.09999999999995753,
+          "z": -183.68564862476035
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -48.7951765304036,
+          "y": 0.09999999999995805,
+          "z": -181.98247201856032
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -53.697866143784054,
+          "y": 0.09999999999995805,
+          "z": -190.08381275913024
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -39.93718250909163,
+          "y": 0.09999999999994554,
+          "z": -186.43298300954964
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -50.85867038649136,
+          "y": 0.09999999999994554,
+          "z": -178.90591832167263
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -51.13580819945211,
+          "y": 0.09999999999994554,
+          "z": -186.42009487757602
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -32.72342255170063,
+          "y": 0.09999999999994816,
+          "z": -166.85671388585743
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -33.1523553963238,
+          "y": 0.09999999999994816,
+          "z": -172.80865831389073
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -35.995592043219446,
+          "y": 0.09999999999994816,
+          "z": -174.3453807995049
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -36.88512748391565,
+          "y": 0.09999999999995124,
+          "z": -146.3206173621274
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -39.667232651884305,
+          "y": 0.09999999999995124,
+          "z": -158.13191510422595
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -40.36567396889506,
+          "y": 0.09999999999995124,
+          "z": -155.43094245033825
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -29.064973955313505,
+          "y": 0.09999999999995252,
+          "z": -148.05145713273996
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -38.6705929690571,
+          "y": 0.09999999999995252,
+          "z": -150.2575712715666
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -31.22675661855623,
+          "y": 0.09999999999995367,
+          "z": -149.82858229723303
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -27.321956724715996,
+          "y": 0.09999999999995367,
+          "z": -151.37018813737822
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -27.925592616208387,
+          "y": 0.09999999999995367,
+          "z": -139.76342410133995
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -23.689316973193527,
+          "y": 0.09999999999996892,
+          "z": -139.6811446076732
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -20.480684951700905,
+          "y": 0.09999999999996892,
+          "z": -137.6836387233401
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -32.61183788334902,
+          "y": 0.09999999999996892,
+          "z": -133.13674855808776
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Soldier",
+        "owner": 0,
+        "position": {
+          "x": 106.62480054150666,
+          "y": 3.4168930024677934e-14,
+          "z": 153.88318052678812
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Soldier",
+        "owner": 0,
+        "position": {
+          "x": 113.647046631322,
+          "y": 3.27277880426787e-14,
+          "z": 147.39285403366839
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Soldier",
+        "owner": 0,
+        "position": {
+          "x": 121.08880448065486,
+          "y": 3.1311605614476136e-14,
+          "z": 141.0149353777267
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Soldier",
+        "owner": 0,
+        "position": {
+          "x": 128.99121821349684,
+          "y": 2.979313703261339e-14,
+          "z": 134.17636083827583
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Soldier",
+        "owner": 0,
+        "position": {
+          "x": 136.36171234964323,
+          "y": 2.8156558574050513e-14,
+          "z": 126.80586670212946
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Archer",
+        "owner": 0,
+        "position": {
+          "x": 116.6600091655364,
+          "y": 2.908719429401951e-14,
+          "z": 162.9970773837995
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Archer",
+        "owner": 0,
+        "position": {
+          "x": 123.45743958099558,
+          "y": 4.167060638141534e-14,
+          "z": 155.66772737164476
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Archer",
+        "owner": 0,
+        "position": {
+          "x": 131.1350376394814,
+          "y": 3.2860409796144654e-14,
+          "z": 147.9901293131589
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Archer",
+        "owner": 0,
+        "position": {
+          "x": 138.15728372929675,
+          "y": 3.141926781414542e-14,
+          "z": 141.49980282003915
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Archer",
+        "owner": 0,
+        "position": {
+          "x": 144.49405826124678,
+          "y": 2.989411133999942e-14,
+          "z": 134.63110869139354
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 0,
+        "position": {
+          "x": 130.92203022430635,
+          "y": 2.24522071907108e-14,
+          "z": 101.11575193773035
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 0,
+        "position": {
+          "x": 146.61956635721765,
+          "y": 2.2391840406086557e-14,
+          "z": 100.84388410899106
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 0,
+        "position": {
+          "x": 160.48550349088916,
+          "y": 1.5160303433227974e-14,
+          "z": 100.27593689270918
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 0,
+        "position": {
+          "x": 177.2057346932,
+          "y": 2.2568829467061906e-14,
+          "z": 101.6409719780483
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 0,
+        "position": {
+          "x": 76.70204689219406,
+          "y": 1.768218996612606e-14,
+          "z": 143.6335041425397
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 0,
+        "position": {
+          "x": 78.27280259749138,
+          "y": 3.4969453275616034e-14,
+          "z": 157.48841674141437
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 0,
+        "position": {
+          "x": 79.04567890774533,
+          "y": 3.786869705485377e-14,
+          "z": 170.54544994524568
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 0,
+        "position": {
+          "x": 79.96108264437217,
+          "y": 4.831416025241318e-14,
+          "z": 185.58763410948646
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 0,
+        "position": {
+          "x": 179.71455529386154,
+          "y": 2.5989911848648637e-14,
+          "z": 117.04815731696607
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 0,
+        "position": {
+          "x": 181.36759924714215,
+          "y": 2.170640167042188e-14,
+          "z": 129.7569424744663
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 0,
+        "position": {
+          "x": 95.45055623127323,
+          "y": 4.861673891660113e-14,
+          "z": 186.95032726877358
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 0,
+        "position": {
+          "x": 109.87853255083513,
+          "y": 4.8956380915860906e-14,
+          "z": 188.47993885007926
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 1,
+        "position": {
+          "x": -189.07265088001307,
+          "y": -1.0381855370687967e-14,
+          "z": -110.75571997884475
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 1,
+        "position": {
+          "x": -177.1777910745805,
+          "y": -2.455129559855765e-14,
+          "z": -110.56920570912716
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 1,
+        "position": {
+          "x": -164.60233988880447,
+          "y": -2.446938818871279e-14,
+          "z": -110.20032752867097
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 1,
+        "position": {
+          "x": -152.36718439320015,
+          "y": -3.861858195532621e-14,
+          "z": -109.9226313035841
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 1,
+        "position": {
+          "x": -188.9103967014007,
+          "y": -4.225727788509717e-14,
+          "z": -190.30986093701515
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 1,
+        "position": {
+          "x": -175.96127491342097,
+          "y": -4.2258342016490724e-14,
+          "z": -190.31465335876263
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 1,
+        "position": {
+          "x": -163.75949432984856,
+          "y": -4.209346306540745e-14,
+          "z": -189.57210457610276
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 1,
+        "position": {
+          "x": -152.23830512661968,
+          "y": -4.196907703683671e-14,
+          "z": -189.01191970418148
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 1,
+        "position": {
+          "x": -136.19314721506217,
+          "y": -4.18911410194185e-14,
+          "z": -188.6609270851781
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 1,
+        "position": {
+          "x": -124.51402623240017,
+          "y": -5.6108484888957265e-14,
+          "z": -188.69015163823107
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 1,
+        "position": {
+          "x": -112.89271229307555,
+          "y": -4.208289815266857e-14,
+          "z": -189.52452443902874
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 1,
+        "position": {
+          "x": -99.81903363769459,
+          "y": -4.211161946447492e-14,
+          "z": -189.65387372817742
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Soldier",
+        "owner": 1,
+        "position": {
+          "x": -150.55950465896112,
+          "y": -2.4011277724683408e-14,
+          "z": -172.13718141357373
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Soldier",
+        "owner": 1,
+        "position": {
+          "x": -150.41291187112816,
+          "y": -3.653015147745793e-14,
+          "z": -164.51717658166734
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Soldier",
+        "owner": 1,
+        "position": {
+          "x": -150.08395517255656,
+          "y": -3.46870488708667e-14,
+          "z": -156.21658036941747
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Soldier",
+        "owner": 1,
+        "position": {
+          "x": -149.6882486499211,
+          "y": -1.8839527554062817e-14,
+          "z": -148.84568927231354
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Soldier",
+        "owner": 1,
+        "position": {
+          "x": -148.9522464371139,
+          "y": -1.7182614491204666e-14,
+          "z": -141.38361621984026
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Archer",
+        "owner": 1,
+        "position": {
+          "x": -161.83158012738758,
+          "y": -3.840183282928176e-14,
+          "z": -172.94648002029743
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Archer",
+        "owner": 1,
+        "position": {
+          "x": -159.89232693332647,
+          "y": -3.653305873849104e-14,
+          "z": -164.53026972137272
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Archer",
+        "owner": 1,
+        "position": {
+          "x": -158.8494039423794,
+          "y": -3.475268121188194e-14,
+          "z": -156.51216215595718
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Archer",
+        "owner": 1,
+        "position": {
+          "x": -159.1920958434249,
+          "y": -3.333528635736918e-14,
+          "z": -150.12878321733663
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Archer",
+        "owner": 1,
+        "position": {
+          "x": -158.18254776450976,
+          "y": -4.56625455434674e-14,
+          "z": -141.64582309434812
+        },
+        "metadata": {}
+      },
+      {
+        "type": "TownCenter",
+        "owner": 2,
+        "position": {
+          "x": -37.870349848960586,
+          "y": 4.700814943243774e-17,
+          "z": 0.21170588426730325
+        },
+        "metadata": {
+          "colony": "c1"
+        }
+      },
+      {
+        "type": "BerryBush",
+        "owner": "gaia",
+        "position": {
+          "x": -62.0366650299404,
+          "y": -9.480703591944203e-17,
+          "z": -0.4269729316389005
+        },
+        "metadata": {}
+      },
+      {
+        "type": "BerryBush",
+        "owner": "gaia",
+        "position": {
+          "x": -63.34594251880788,
+          "y": 1.5072955125967856e-15,
+          "z": 6.788255508868106
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 2,
+        "position": {
+          "x": -62.02114452061075,
+          "y": 1.1620970796969759e-14,
+          "z": -11.663800249083595
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 2,
+        "position": {
+          "x": -16.096577228899932,
+          "y": -1.6900380031696946e-14,
+          "z": -12.112545213170126
+        },
+        "metadata": {}
+      },
+      {
+        "type": "GoldMine",
+        "owner": "gaia",
+        "position": {
+          "x": -33.076303956882775,
+          "y": 7.24423876164303e-15,
+          "z": 32.62515098751846
+        },
+        "metadata": {}
+      },
+      {
+        "type": "GoldMine",
+        "owner": "gaia",
+        "position": {
+          "x": -14.983149976584883,
+          "y": 4.144720716274416e-15,
+          "z": 18.666162673368238
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Market",
+        "owner": 2,
+        "position": {
+          "x": -61.37350493446514,
+          "y": 4.216649298274307e-15,
+          "z": 18.990100208460237
+        },
+        "metadata": {
+          "convert": "market"
+        }
+      },
+      {
+        "type": "Barracks",
+        "owner": 2,
+        "position": {
+          "x": -170.72261621970975,
+          "y": 4.3410852406494836e-14,
+          "z": 131.50509872172577
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 2,
+        "position": {
+          "x": -155.88429500190375,
+          "y": 2.931482833771926e-14,
+          "z": 132.02224997818254
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 2,
+        "position": {
+          "x": -141.09165647369082,
+          "y": 2.957094103348462e-14,
+          "z": 133.17567901939628
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tower",
+        "owner": 2,
+        "position": {
+          "x": -185.3279589480686,
+          "y": 2.959117559381629e-14,
+          "z": 133.26680737776599
+        },
+        "metadata": {
+          "convert": "tower"
+        }
+      },
+      {
+        "type": "Tower",
+        "owner": 2,
+        "position": {
+          "x": -137.78505378737043,
+          "y": 4.014782118721173e-14,
+          "z": 180.80971253846408
+        },
+        "metadata": {
+          "convert": "tower"
+        }
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -162.21562549727298,
+          "y": 4.9161137725148074e-14,
+          "z": 157.40208154008653
+        },
+        "metadata": {
+          "colony": "c2"
+        }
+      },
+      {
+        "type": "Barracks",
+        "owner": 2,
+        "position": {
+          "x": -165.99450617400058,
+          "y": 6.1259394487137485e-15,
+          "z": -36.41122138147856
+        },
+        "metadata": {
+          "colony": "c3"
+        }
+      },
+      {
+        "type": "House",
+        "owner": 2,
+        "position": {
+          "x": -182.47740421715469,
+          "y": 1.1097262578488885e-14,
+          "z": -14.022372386684925
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 2,
+        "position": {
+          "x": -187.56346778726936,
+          "y": -1.234419707219436e-14,
+          "z": -55.5933213345225
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tower",
+        "owner": 2,
+        "position": {
+          "x": -149.02877776259405,
+          "y": -2.803510363096879e-15,
+          "z": -12.625888226572432
+        },
+        "metadata": {
+          "convert": "tower"
+        }
+      },
+      {
+        "type": "Tower",
+        "owner": 2,
+        "position": {
+          "x": -150.20580924498097,
+          "y": 1.833313749370484e-15,
+          "z": -55.74348888148191
+        },
+        "metadata": {
+          "convert": "tower"
+        }
+      },
+      {
+        "type": "TownCenter",
+        "owner": 2,
+        "position": {
+          "x": 43.07827798220474,
+          "y": -7.642648612053024e-15,
+          "z": -98.41942944136568
+        },
+        "metadata": {
+          "colony": "c4"
+        }
+      },
+      {
+        "type": "House",
+        "owner": 2,
+        "position": {
+          "x": 76.92908787286301,
+          "y": -2.4255493307341294e-14,
+          "z": -109.23703062062984
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 2,
+        "position": {
+          "x": 75.79926127282243,
+          "y": -2.1250713860198334e-14,
+          "z": -95.70470702214627
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Camp",
+        "owner": 2,
+        "position": {
+          "x": 26.64037516007707,
+          "y": -2.943593337506901e-15,
+          "z": -77.25676585792638
+        },
+        "metadata": {
+          "convert": "camp"
+        }
+      },
+      {
+        "type": "Camp",
+        "owner": 2,
+        "position": {
+          "x": 58.86212873471682,
+          "y": -1.6965361138906413e-14,
+          "z": -76.40519410338483
+        },
+        "metadata": {
+          "convert": "camp"
+        }
+      },
+      {
+        "type": "TownCenter",
+        "owner": 2,
+        "position": {
+          "x": -22.90254442336876,
+          "y": 4.831463721789888e-14,
+          "z": 185.5897821710701
+        },
+        "metadata": {}
+      },
+      {
+        "type": "GoldMine",
+        "owner": "gaia",
+        "position": {
+          "x": 10.887062268366869,
+          "y": 4.144357881186336e-14,
+          "z": 186.64528609400764
+        },
+        "metadata": {}
+      },
+      {
+        "type": "GoldMine",
+        "owner": "gaia",
+        "position": {
+          "x": 24.99774032222988,
+          "y": 4.185111715173025e-14,
+          "z": 188.48067560957136
+        },
+        "metadata": {}
+      },
+      {
+        "type": "GoldMine",
+        "owner": "gaia",
+        "position": {
+          "x": 3.4410193487455984,
+          "y": 3.706456355969381e-14,
+          "z": 166.92395463608713
+        },
+        "metadata": {
+          "colony": "c5"
+        }
+      },
+      {
+        "type": "House",
+        "owner": 2,
+        "position": {
+          "x": 24.749004302636777,
+          "y": 3.430031727750365e-14,
+          "z": 154.47489610965525
+        },
+        "metadata": {}
+      },
+      {
+        "type": "House",
+        "owner": 2,
+        "position": {
+          "x": -22.539483937773966,
+          "y": 3.470280996396938e-14,
+          "z": 156.28756202244168
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Market",
+        "owner": 2,
+        "position": {
+          "x": 27.70766067915087,
+          "y": 3.836434795601993e-14,
+          "z": 172.77766315904344
+        },
+        "metadata": {
+          "convert": "market"
+        }
+      },
+      {
+        "type": "Barracks",
+        "owner": 2,
+        "position": {
+          "x": 133.8794250609426,
+          "y": -3.566689291850283e-15,
+          "z": -16.062940565723277
+        },
+        "metadata": {
+          "colony": "c6"
+        }
+      },
+      {
+        "type": "House",
+        "owner": 2,
+        "position": {
+          "x": 162.93297851983905,
+          "y": 4.800771275827327e-15,
+          "z": 21.620751728906935
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tower",
+        "owner": 2,
+        "position": {
+          "x": 113.83030217388853,
+          "y": -4.1221018056805e-15,
+          "z": 13.435703843954062
+        },
+        "metadata": {
+          "convert": "tower"
+        }
+      },
+      {
+        "type": "Tower",
+        "owner": 2,
+        "position": {
+          "x": 114.91532492273195,
+          "y": -7.224120443483032e-15,
+          "z": -32.53454613734977
+        },
+        "metadata": {
+          "convert": "tower"
+        }
+      },
+      {
+        "type": "House",
+        "owner": 2,
+        "position": {
+          "x": 162.8693742897672,
+          "y": 9.166414063463032e-15,
+          "z": 9.28185896053578
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 166.53183690232083,
+          "y": 0.0999999999999603,
+          "z": -186.94756989414304
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 187.6831004432899,
+          "y": 0.0999999999999603,
+          "z": -183.9792563002266
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 188.4731275537443,
+          "y": 0.09999999999996034,
+          "z": -180.578346480982
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 178.10876130248056,
+          "y": 0.09999999999996034,
+          "z": -188.8064665735522
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 171.68859507287496,
+          "y": 0.09999999999996055,
+          "z": -193.68088353882737
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 175.71458301910167,
+          "y": 0.09999999999996055,
+          "z": -166.10180826950057
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 156.45571256370974,
+          "y": 0.09999999999996086,
+          "z": -182.25023447413224
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 150.38751519802605,
+          "y": 0.09999999999996086,
+          "z": -178.80433418463215
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 132.7243241284892,
+          "y": 0.09999999999996055,
+          "z": -180.181391120549
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 137.32834198024702,
+          "y": 0.09999999999996055,
+          "z": -180.41095071580165
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 136.14296843109094,
+          "y": 0.099999999999975,
+          "z": -186.9443475859604
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 120.9330280803555,
+          "y": 0.099999999999975,
+          "z": -173.1360226345178
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 129.31158482333348,
+          "y": 0.09999999999996045,
+          "z": -181.33478228400273
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 124.33581361676616,
+          "y": 0.09999999999996045,
+          "z": -161.3071995667356
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 151.07849836077304,
+          "y": 0.0999999999999641,
+          "z": -168.71868879003284
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 154.4272613505034,
+          "y": 0.0999999999999641,
+          "z": -151.4849149513296
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 148.32048517472109,
+          "y": 0.09999999999995181,
+          "z": -140.97467231333204
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 150.95594116326114,
+          "y": 0.09999999999995181,
+          "z": -151.79602814841653
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 179.34419829132824,
+          "y": 0.0999999999999825,
+          "z": -136.1716074858708
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 163.14866188515742,
+          "y": 0.0999999999999825,
+          "z": -147.32336327838877
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 161.2884687554155,
+          "y": 0.09999999999998378,
+          "z": -139.98062516556104
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 171.4123352408674,
+          "y": 0.09999999999998378,
+          "z": -132.2428836736156
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 195.85280531285412,
+          "y": 0.09999999999997988,
+          "z": -153.14947345634522
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 165.78551301399207,
+          "y": 0.09999999999997988,
+          "z": -157.4300594241515
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 185.78475726698917,
+          "y": 0.09999999999996621,
+          "z": -144.9555037459643
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 195.84337915240545,
+          "y": 0.09999999999996621,
+          "z": -163.72605123347472
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 173.3139616569552,
+          "y": 0.09999999999996495,
+          "z": -163.5683940232264
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 195.02229711967072,
+          "y": 0.09999999999996495,
+          "z": -156.70897559050144
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 110.13412091728887,
+          "y": 0.09999999999995898,
+          "z": -178.21406606596037
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 102.96113323701984,
+          "y": 0.09999999999995898,
+          "z": -170.4772698762863
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 96.26890280405938,
+          "y": 0.09999999999994447,
+          "z": -185.9950636891731
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 117.47877164807235,
+          "y": 0.09999999999994447,
+          "z": -191.970927734483
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 174.14419212500647,
+          "y": 0.09999999999997397,
+          "z": -126.92231786737808
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 182.3600487392844,
+          "y": 0.0999999999999824,
+          "z": -75.65429624000677
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 196.19440237230955,
+          "y": 0.09999999999998778,
+          "z": -52.14115937225583
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 174.4406688792217,
+          "y": 0.09999999999998778,
+          "z": -49.346232875918915
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 177.51676457051258,
+          "y": 0.09999999999999579,
+          "z": -53.14452428445247
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 192.43550553807103,
+          "y": 0.09999999999999579,
+          "z": -47.98797310426073
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 176.8166530033922,
+          "y": 0.0999999999999915,
+          "z": -45.60082181109974
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 193.93939736971703,
+          "y": 0.0999999999999915,
+          "z": -27.51703320089395
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 183.45899997857373,
+          "y": 0.09999999999997525,
+          "z": -105.62401089866087
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 179.39704359503276,
+          "y": 0.09999999999997525,
+          "z": -106.88708387510414
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 174.14751368818355,
+          "y": 0.09999999999997927,
+          "z": -85.97923130318546
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 187.65313877435835,
+          "y": 0.09999999999997927,
+          "z": -87.1712223936785
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 179.9729059982913,
+          "y": 0.0999999999999831,
+          "z": -90.07974705123821
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 164.72724979335305,
+          "y": 0.0999999999999831,
+          "z": -79.46744526829484
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 168.48080311010133,
+          "y": 0.09999999999998796,
+          "z": -122.6667775815917
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 179.27812519237224,
+          "y": 0.09999999999998796,
+          "z": -111.64829419022401
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -103.48429241866833,
+          "y": 0.10000000000004006,
+          "z": 176.61890169526797
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -92.80745447041247,
+          "y": 0.10000000000004006,
+          "z": 192.88247382556807
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -73.37565166418403,
+          "y": 0.10000000000003885,
+          "z": 165.8951594816662
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -71.29732126918573,
+          "y": 0.10000000000003885,
+          "z": 167.35437325492688
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -190.79687163060544,
+          "y": 0.10000000000003569,
+          "z": 92.38321167031063
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -164.8478576610592,
+          "y": 0.10000000000003569,
+          "z": 94.51156585256113
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -168.15412140239567,
+          "y": 0.10000000000000779,
+          "z": 87.56442511512029
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -187.233538892143,
+          "y": 0.10000000000000779,
+          "z": 102.40193194016045
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -72.41674908172504,
+          "y": 0.10000000000001452,
+          "z": 61.0328225661411
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -63.39778201987697,
+          "y": 0.10000000000001452,
+          "z": 67.55022995432903
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -78.76150044545221,
+          "y": 0.10000000000001535,
+          "z": 82.08986984942388
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -65.15052107929228,
+          "y": 0.10000000000001535,
+          "z": 57.73901163783421
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -64.11753138765758,
+          "y": 0.10000000000001552,
+          "z": 83.21322330002407
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -83.47860861141079,
+          "y": 0.10000000000001552,
+          "z": 55.414115181784794
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -20.774066117538737,
+          "y": 0.09999999999994669,
+          "z": -179.92504710781674
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -0.9846175607766678,
+          "y": 0.09999999999994669,
+          "z": -165.6503368077799
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 5.877448882390193,
+          "y": 0.09999999999996118,
+          "z": -179.79037873828673
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 7.04594273772996,
+          "y": 0.09999999999996118,
+          "z": -164.19063592680365
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 22.1086492576852,
+          "y": 0.09999999999994634,
+          "z": -174.29583403214832
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 14.240008918597745,
+          "y": 0.09999999999994634,
+          "z": -165.0182312021176
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 8.859415875391475,
+          "y": 0.09999999999994597,
+          "z": -178.01201124206042
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 16.625944488639718,
+          "y": 0.09999999999996041,
+          "z": -182.81338340556653
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 22.352447288395965,
+          "y": 0.09999999999996041,
+          "z": -184.2237434502892
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 44.06022134782543,
+          "y": 0.09999999999996054,
+          "z": -175.38811828679178
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 28.864778739984335,
+          "y": 0.09999999999996054,
+          "z": -193.66095380902513
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -5.824195248411302,
+          "y": 0.09999999999994626,
+          "z": -162.6097201404388
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": -26.838961468800846,
+          "y": 0.09999999999994626,
+          "z": -170.0593228789441
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 19.007810772938395,
+          "y": 0.10000000000001308,
+          "z": 49.82047354471849
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 31.58226466548358,
+          "y": 0.10000000000001308,
+          "z": 46.72963762858236
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 48.70191976350878,
+          "y": 0.10000000000001168,
+          "z": 55.5995457563255
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 51.49723072596238,
+          "y": 0.10000000000001168,
+          "z": 55.42093132335061
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 56.666683664783285,
+          "y": 0.10000000000000778,
+          "z": 27.480091089367516
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 59.85393191384966,
+          "y": 0.10000000000000778,
+          "z": 32.82687688542013
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 15.840155252171785,
+          "y": 0.10000000000001441,
+          "z": 74.59027153202399
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 14.95318470570186,
+          "y": 0.10000000000001441,
+          "z": 68.71085843636767
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 71.94654276589662,
+          "y": 0.09999999999999602,
+          "z": 37.68075834636376
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 72.59111630530944,
+          "y": 0.09999999999999602,
+          "z": 53.67499633948553
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 19.98842804028077,
+          "y": 0.10000000000000764,
+          "z": 20.927245329746555
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 32.40711458522982,
+          "y": 0.1000000000000064,
+          "z": 29.69952055245134
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 35.9660066299731,
+          "y": 0.1000000000000064,
+          "z": 42.41250130859653
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 37.298475500151326,
+          "y": 1.3173301625106288e-14,
+          "z": 59.32727629006784
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 26.856175446266533,
+          "y": 2.7866874366213002e-14,
+          "z": 61.5012450116573
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 15.007551623633901,
+          "y": 1.261506591847522e-14,
+          "z": 56.81320616969926
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 24.17161520731048,
+          "y": 8.744296676461118e-15,
+          "z": 39.380811253727366
+        },
+        "metadata": {}
+      },
+      {
+        "type": "Tree",
+        "owner": "gaia",
+        "position": {
+          "x": 15.653669017026132,
+          "y": 6.7015070357652425e-15,
+          "z": 30.18090458909311
+        },
+        "metadata": {}
+      }
+    ],
+    "instancingGroups": [
+      {
+        "id": "grp1",
+        "name": "Standard Army"
+      },
+      {
+        "id": "grp2",
+        "name": "Resource Outpost"
+      }
+    ]
+  }
+}
