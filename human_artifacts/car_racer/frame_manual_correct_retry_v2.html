@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Procedural Track Builder - Diagnostic Tool (Fixed)</title>
+<style>
+:root {
+--bg-color: #1e1e24;
+--panel-bg: #2b2b36;
+--text-color: #e0e0e0;
+--accent-color: #4a90e2;
+--accent-hover: #357abd;
+--border-color: #444450;
+--success-color: #27ae60;
+--danger-color: #e74c3c;
+}
+body {
+font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+margin: 0;
+padding: 0;
+background-color: var(--bg-color);
+color: var(--text-color);
+display: flex;
+height: 100vh;
+overflow: hidden;
+}
+/* Sidebar Controls */
+aside {
+width: 320px;
+background-color: var(--panel-bg);
+border-right: 1px solid var(--border-color);
+display: flex;
+flex-direction: column;
+padding: 20px;
+box-shadow: 2px 0 10px rgba(0,0,0,0.3);
+z-index: 10;
+}
+h1 {
+font-size: 1.2rem;
+margin-bottom: 20px;
+color: var(--accent-color);
+border-bottom: 2px solid var(--border-color);
+padding-bottom: 10px;
+}
+h2 {
+font-size: 1rem;
+margin-top: 20px;
+margin-bottom: 10px;
+color: #aaa;
+}
+.control-group {
+margin-bottom: 15px;
+}
+label {
+display: block;
+margin-bottom: 5px;
+font-size: 0.9rem;
+}
+input[type="number"] {
+width: 100%;
+padding: 8px;
+background: var(--bg-color);
+border: 1px solid var(--border-color);
+color: white;
+border-radius: 4px;
+box-sizing: border-box;
+}
+button {
+width: 100%;
+padding: 10px;
+margin-bottom: 10px;
+background-color: var(--accent-color);
+color: white;
+border: none;
+border-radius: 4px;
+cursor: pointer;
+font-weight: 600;
+transition: background 0.2s;
+}
+button:hover {
+background-color: var(--accent-hover);
+}
+button.secondary {
+background-color: #555;
+}
+button.secondary:hover {
+background-color: #666;
+}
+button.danger {
+background-color: var(--danger-color);
+}
+button.danger:hover {
+background-color: #c0392b;
+}
+/* Segment List */
+#segmentList {
+flex-grow: 1;
+overflow-y: auto;
+border: 1px solid var(--border-color);
+background: var(--bg-color);
+padding: 10px;
+border-radius: 4px;
+margin-bottom: 20px;
+}
+.segment-item {
+display: flex;
+justify-content: space-between;
+align-items: center;
+padding: 8px;
+background: var(--panel-bg);
+margin-bottom: 5px;
+border-radius: 3px;
+font-size: 0.85rem;
+}
+.segment-item span {
+flex-grow: 1;
+}
+.remove-btn {
+background: transparent;
+color: var(--danger-color);
+width: auto;
+padding: 2px 8px;
+margin: 0;
+font-size: 1.2rem;
+}
+.remove-btn:hover {
+background: rgba(231, 76, 60, 0.1);
+}
+/* Main Content */
+main {
+flex-grow: 1;
+position: relative;
+display: flex;
+flex-direction: column;
+}
+/* Canvas Area */
+#canvas-container {
+flex-grow: 1;
+background-color: #15151a;
+position: relative;
+overflow: hidden;
+cursor: grab;
+}
+#canvas-container:active {
+cursor: grabbing;
+}
+canvas {
+display: block;
+}
+/* Code Output Area */
+#code-panel {
+height: 250px;
+background-color: var(--panel-bg);
+border-top: 1px solid var(--border-color);
+display: flex;
+flex-direction: column;
+padding: 15px;
+}
+#code-header {
+display: flex;
+justify-content: space-between;
+align-items: center;
+margin-bottom: 10px;
+}
+#codeOutput {
+flex-grow: 1;
+background-color: var(--bg-color);
+color: #aaddaa;
+font-family: 'Courier New', Courier, monospace;
+padding: 10px;
+border: 1px solid var(--border-color);
+border-radius: 4px;
+resize: none;
+white-space: pre;
+overflow: auto;
+font-size: 0.9rem;
+}
+/* Helper Classes */
+.badge {
+display: inline-block;
+padding: 2px 6px;
+border-radius: 3px;
+font-size: 0.7rem;
+color: white;
+margin-right: 5px;
+min-width: 40px;
+text-align: center;
+}
+.badge-straight { background-color: #3498db; }
+.badge-left { background-color: #e67e22; }
+.badge-right { background-color: #9b59b6; }
+/* Overlay Info */
+.overlay-info {
+position: absolute;
+top: 20px;
+right: 20px;
+background: rgba(0,0,0,0.7);
+padding: 10px;
+border-radius: 4px;
+pointer-events: none;
+}
+.overlay-row {
+display: flex;
+justify-content: space-between;
+width: 200px;
+font-size: 0.8rem;
+margin-bottom: 4px;
+}
+</style>
+</head>
+<body>
+<aside>
+<h1>Track Builder (Fixed)</h1>
+<div class="control-group">
+<button id="addStraight">Add Straight Line</button>
+<label for="straightLength">Length (m)</label>
+<input type="number" id="straightLength" value="50" min="5">
+<label for="straightDensity">Cone Density</label>
+<input type="number" id="straightDensity" value="10" min="2">
+</div>
+<div class="control-group">
+<button id="addLeftTurn">Add Left Arc</button>
+<button id="addRightTurn" class="secondary">Add Right Arc</button>
+<label for="turnRadius">Radius (m)</label>
+<input type="number" id="turnRadius" value="20" min="5">
+<label for="turnAngle">Angle (deg)</label>
+<input type="number" id="turnAngle" value="90" min="10" max="180">
+<label for="turnDensity">Arc Steps</label>
+<input type="number" id="turnDensity" value="10" min="3">
+</div>
+<h2>Course Segments</h2>
+<div id="segmentList">
+<!-- Items will be added here -->
+</div>
+<button id="clearAll" class="danger">Clear Course</button>
+</aside>
+<main>
+<div id="canvas-container">
+<canvas id="trackCanvas"></canvas>
+<div class="overlay-info">
+<div class="overlay-row"><span>Grid:</span> <span id="infoGrid">10m</span></div>
+<div class="overlay-row"><span>Car X:</span> <span id="infoX">0.0</span></div>
+<div class="overlay-row"><span>Car Z:</span> <span id="infoZ">0.0</span></div>
+<div class="overlay-row"><span>Heading:</span> <span id="infoHeading">0&deg;</span></div>
+</div>
+</div>
+<div id="code-panel">
+<div id="code-header">
+<h3>Generated Code</h3>
+<button id="copyCode" style="width: auto; margin:0; padding: 5px 15px;">Copy to Clipboard</button>
+</div>
+<textarea id="codeOutput" readonly></textarea>
+</div>
+</main>
+<script>
+/**
+* Configuration & State
+*/
+const params = {
+roadWidth: 8, // meters
+coneSize: 0.5 // visualization scale
+};
+// State representing the "Current Frame" at the end of the last segment
+// x, z: position in world space
+// heading: rotation in radians (0 points +Z, which is UP in our 2D visualizer)
+let currentFrame = { x: 0, z: 0, heading: -Math.PI / 2 }; // Start pointing UP on screen
+// List of segment definitions
+let segments = [];
+// Canvas setup
+const canvas = document.getElementById('trackCanvas');
+const ctx = canvas.getContext('2d');
+let scale = 4; // Pixels per meter
+let offsetX = 0;
+let offsetY = 0;
+let isDragging = false;
+let lastMouseX = 0;
+let lastMouseY = 0;
+
+/**
+ * Core Math: Frame Transformation
+ * This is the central, consistent implementation used everywhere
+ */
+function updateFrame(frame, seg) {
+  if (seg.type === 'straight') {
+    // Corrected straight motion (sign fixed for x-component)
+    frame.x += Math.sin(frame.heading) * seg.length;
+    frame.z += Math.cos(frame.heading) * seg.length;
+  } else if (seg.type === 'arc') {
+    const radius = seg.radius;
+    const angle = seg.angleRad;
+    const direction = seg.direction; // 1 = left, -1 = right
+
+    // Define basis vectors in global frame
+    // Forward: {x: sin(heading), z: cos(heading)}
+    // Left: {x: cos(heading), z: -sin(heading)}
+    const left = { x: Math.cos(frame.heading), z: -Math.sin(frame.heading) };
+    const forward = { x: Math.sin(frame.heading), z: Math.cos(frame.heading) };
+
+    // Calculate center displacement from current position
+    const center = {
+      x: direction * radius * left.x,
+      z: direction * radius * left.z
+    };
+
+    // Calculate end position relative to center
+    let endPosLocalRelativeToCenter;
+    if (direction === 1) {
+      // Left turn: Start at (-r,0) relative to center, end at (-r*cos(angle), r*sin(angle))
+      endPosLocalRelativeToCenter = {
+        x: -radius * Math.cos(angle),
+        z: radius * Math.sin(angle)
+      };
+    } else {
+      // Right turn: Start at (r,0) relative to center, end at (r*cos(angle), r*sin(angle))
+      endPosLocalRelativeToCenter = {
+        x: radius * Math.cos(angle),
+        z: radius * Math.sin(angle)
+      };
+    }
+
+    // Update heading
+    frame.heading += direction * angle;
+
+    // Update position
+    // Current position + center displacement + rotated end position
+    frame.x += center.x + 
+               endPosLocalRelativeToCenter.x * left.x + 
+               endPosLocalRelativeToCenter.z * forward.x;
+    frame.z += center.z + 
+               endPosLocalRelativeToCenter.x * left.z + 
+               endPosLocalRelativeToCenter.z * forward.z;
+  }
+}
+
+/**
+* Adds a straight segment to the list
+*/
+function addStraight() {
+  const length = parseFloat(document.getElementById('straightLength').value);
+  const count = parseInt(document.getElementById('straightDensity').value);
+  segments.push({
+    type: 'straight',
+    length: length,
+    count: count
+  });
+  updateAndRender();
+}
+
+/**
+* Adds an arc segment to the list
+*/
+function addArc(direction) {
+  const radius = parseFloat(document.getElementById('turnRadius').value);
+  const angleDeg = parseFloat(document.getElementById('turnAngle').value);
+  const count = parseInt(document.getElementById('turnDensity').value);
+  segments.push({
+    type: 'arc',
+    radius: radius,
+    angleDeg: angleDeg,
+    angleRad: angleDeg * (Math.PI / 180),
+    direction: direction, // 1 for left, -1 for right
+    count: count
+  });
+  updateAndRender();
+}
+
+/**
+* The Core Logic: Reconstructs the entire track by composing transforms.
+* This simulates what the generated code will do in the game engine.
+*/
+function updateAndRender() {
+  // 1. Reset Frame to Start
+  currentFrame = { x: 0, z: 0, heading: -Math.PI / 2 };
+  // Reset Game Logic Frame
+  let simFrame = { x: 0, z: 0, heading: 0 };
+  
+  // 2. Clear Canvas
+  ctx.fillStyle = '#15151a';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  
+  // Draw Grid
+  drawGrid();
+  
+  // 3. Process Segments
+  segments.forEach((seg, index) => {
+    if (seg.type === 'straight') {
+      processStraightVisual(simFrame, seg);
+      // Update frame for next segment using consistent math
+      updateFrame(simFrame, seg);
+    } else if (seg.type === 'arc') {
+      processArcVisual(simFrame, seg);
+      // Update frame for next segment using consistent math
+      updateFrame(simFrame, seg);
+    }
+  });
+  
+  // Draw Car at end
+  drawCar(simFrame);
+  
+  // 4. Update UI Info
+  document.getElementById('infoX').textContent = simFrame.x.toFixed(1);
+  document.getElementById('infoZ').textContent = simFrame.z.toFixed(1);
+  document.getElementById('infoHeading').textContent = (simFrame.heading * 180 / Math.PI).toFixed(0) + "°";
+  
+  // 5. Generate Code
+  generateCode();
+  updateSegmentListUI();
+}
+
+/**
+* Visualization Helpers
+*/
+function toCanvas(x, z) {
+  const cx = canvas.width / 2 + offsetX;
+  const cy = canvas.height / 2 + offsetY;
+  return {
+    x: cx - (x * scale),
+    y: cy - (z * scale)
+  };
+}
+
+function drawGrid() {
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  const gridSize = 10; // meters
+  const range = 200; // draw range
+  for (let x = -range; x <= range; x += gridSize) {
+    const p1 = toCanvas(x, -range);
+    const p2 = toCanvas(x, range);
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+  }
+  for (let z = -range; z <= range; z += gridSize) {
+    const p1 = toCanvas(-range, z);
+    const p2 = toCanvas(range, z);
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+  }
+  ctx.stroke();
+  
+  // Draw Axes
+  ctx.strokeStyle = '#555';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  const origin = toCanvas(0,0);
+  // Z Axis (Forward)
+  ctx.moveTo(origin.x, origin.y);
+  ctx.lineTo(toCanvas(0, 20).x, toCanvas(0, 20).y);
+  // X Axis (Left)
+  ctx.moveTo(origin.x, origin.y);
+  ctx.lineTo(toCanvas(20, 0).x, toCanvas(20, 0).y);
+  ctx.stroke();
+}
+
+function processStraightVisual(frame, seg) {
+  const p1 = { x: frame.x, z: frame.z };
+  
+  // Create a copy of the frame for calculation
+  const frameCopy = { x: frame.x, z: frame.z, heading: frame.heading };
+  updateFrame(frameCopy, seg);
+  const p2 = { x: frameCopy.x, z: frameCopy.z };
+  
+  // Draw Center Line
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([5, 5]);
+  ctx.beginPath();
+  const cp1 = toCanvas(p1.x, p1.z);
+  const cp2 = toCanvas(p2.x, p2.z);
+  ctx.moveTo(cp1.x, cp1.y);
+  ctx.lineTo(cp2.x, cp2.y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  
+  drawConesLine(p1, p2, seg.count);
+}
+
+function processArcVisual(frame, seg) {
+  const radius = seg.radius;
+  const angle = seg.angleRad;
+  const direction = seg.direction;
+  
+  // Create a copy of the frame for calculation
+  const frameCopy = { x: frame.x, z: frame.z, heading: frame.heading };
+  updateFrame(frameCopy, seg);
+  
+  // Calculate center using the correct basis vectors
+  const left = { x: Math.cos(frame.heading), z: -Math.sin(frame.heading) };
+  const center = {
+    x: frame.x + direction * radius * left.x,
+    z: frame.z + direction * radius * left.z
+  };
+  
+  // Draw Arc Path
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  
+  // Parameterize the arc correctly
+  const steps = 20;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const currentAngle = t * angle;
+    
+    let currentPosLocalRelativeToCenter;
+    if (direction === 1) {
+      // Left turn
+      currentPosLocalRelativeToCenter = {
+        x: -radius * Math.cos(currentAngle),
+        z: radius * Math.sin(currentAngle)
+      };
+    } else {
+      // Right turn
+      currentPosLocalRelativeToCenter = {
+        x: radius * Math.cos(currentAngle),
+        z: radius * Math.sin(currentAngle)
+      };
+    }
+    
+    // Calculate world position
+    const worldX = center.x + 
+                  currentPosLocalRelativeToCenter.x * left.x + 
+                  currentPosLocalRelativeToCenter.z * Math.sin(frame.heading);
+    const worldZ = center.z + 
+                  currentPosLocalRelativeToCenter.x * left.z + 
+                  currentPosLocalRelativeToCenter.z * Math.cos(frame.heading);
+    
+    const cp = toCanvas(worldX, worldZ);
+    if (i === 0) ctx.moveTo(cp.x, cp.y);
+    else ctx.lineTo(cp.x, cp.y);
+  }
+  
+  ctx.stroke();
+  
+  // Draw cones along the arc
+  drawConesArc(center, radius, frame.heading, angle, seg.count, direction);
+}
+
+function drawConesLine(p1, p2, count) {
+  const dx = p2.x - p1.x;
+  const dz = p2.z - p1.z;
+  const len = Math.sqrt(dx*dx + dz*dz);
+  
+  // Calculate normal vector (pointing left)
+  const nx = dz / len;
+  const nz = -dx / len;
+  
+  ctx.fillStyle = '#e67e22';
+  for (let i = 0; i <= count; i++) {
+    const t = i / count;
+    const cx = p1.x + dx * t;
+    const cz = p1.z + dz * t;
+    
+    // Left cone (outer)
+    drawConeShape(cx + nx * (params.roadWidth/2), cz + nz * (params.roadWidth/2));
+    // Right cone (inner)
+    drawConeShape(cx - nx * (params.roadWidth/2), cz - nz * (params.roadWidth/2));
+  }
+}
+
+function drawConesArc(center, radius, heading, angle, count, direction) {
+  ctx.fillStyle = '#e67e22';
+  
+  // Basis vectors
+  const left = { x: Math.cos(heading), z: -Math.sin(heading) };
+  const forward = { x: Math.sin(heading), z: Math.cos(heading) };
+  
+  // Determine inner/outer radii
+  const rLeft = radius + params.roadWidth/2;
+  const rRight = radius - params.roadWidth/2;
+  
+  for (let i = 1; i < count; i++) {
+    const t = i / count;
+    const currentAngle = t * angle;
+    
+    // Calculate position relative to center
+    const posLocalRelativeToCenter = {
+      x: -radius * Math.cos(currentAngle) * direction,
+      z: radius * Math.sin(currentAngle)
+    };
+    
+    // Calculate world position
+    const worldX = center.x + 
+                  posLocalRelativeToCenter.x * left.x + 
+                  posLocalRelativeToCenter.z * forward.x;
+    const worldZ = center.z + 
+                  posLocalRelativeToCenter.x * left.z + 
+                  posLocalRelativeToCenter.z * forward.z;
+    
+    // Calculate normal vector pointing to the LEFT side of the road (from driver's perspective)
+    const normalX = -Math.cos(currentAngle);
+    const normalZ = -Math.sin(currentAngle);
+    
+    // Left cone is always on the left side of the road (from driver's perspective)
+    const leftConeX = posLocalRelativeToCenter.x - direction * normalX * (params.roadWidth / 2); //Human Fix: handedness?
+    const leftConeZ = posLocalRelativeToCenter.z + normalZ * (params.roadWidth / 2);
+    
+    // Right cone is always on the right side of the road (from driver's perspective)
+    const rightConeX = posLocalRelativeToCenter.x + direction * normalX * (params.roadWidth / 2); //Human Fix: handedness?
+    const rightConeZ = posLocalRelativeToCenter.z - normalZ * (params.roadWidth / 2);
+      
+      // Left cone (left side of road)
+      const wx_L = center.x + leftConeX * left.x + leftConeZ * forward.x;
+      const wz_L = center.z + leftConeX * left.z + leftConeZ * forward.z;
+      drawConeShape(wx_L, wz_L); //Human remarks: Actually always the inner cones from testing
+      
+      // Right cone (right side of road)
+      const wx_R = center.x + rightConeX * left.x + rightConeZ * forward.x;
+      const wz_R = center.z + rightConeX * left.z + rightConeZ * forward.z;
+      drawConeShape(wx_R, wz_R); //Human remarks: Actually always the outer cones from testing
+  }
+}
+
+function drawConeShape(x, z) {
+  const p = toCanvas(x, z);
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawCar(frame) {
+  const p = toCanvas(frame.x, frame.z);
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  // Frame heading is standard math angle. Canvas Y is flipped.
+  ctx.rotate(-frame.heading);
+  // Draw Car Body
+  ctx.fillStyle = '#4a90e2';
+  ctx.fillRect(-6, -3, 12, 6);
+  // Draw Direction Indicator
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.moveTo(4, 0);
+  ctx.lineTo(0, -3);
+  ctx.lineTo(0, 3);
+  ctx.fill();
+  ctx.restore();
+}
+
+/**
+* Code Generation
+*/
+function generateCode() {
+  let code = `function loadCourseFromParams() {
+clearCones();
+resetTimer();
+`;
+  let simFrame = { x: 0, z: 0, heading: 0 };
+  
+  segments.forEach((seg) => {
+    if (seg.type === 'straight') {
+      const p1 = { x: simFrame.x, z: simFrame.z };
+      
+      // Create a copy for calculation
+      const frameCopy = { x: simFrame.x, z: simFrame.z, heading: simFrame.heading };
+      updateFrame(frameCopy, seg);
+      const p2 = { x: frameCopy.x, z: frameCopy.z };
+      
+      code += `    // Segment: Straight ${seg.length}m
+`;
+      code += `    const p1 = { x: ${p1.x.toFixed(2)}, z: ${p1.z.toFixed(2)} };
+`;
+      code += `    const p2 = { x: ${p2.x.toFixed(2)}, z: ${p2.z.toFixed(2)} };
+`;
+      code += `    placeLine(p1, p2, ${seg.count});
+`;
+      
+      simFrame = { x: frameCopy.x, z: frameCopy.z, heading: frameCopy.heading };
+    } else if (seg.type === 'arc') {
+      const radius = seg.radius;
+      const angle = seg.angleRad;
+      const direction = seg.direction;
+      
+      // Calculate center
+      const left = { x: Math.cos(simFrame.heading), z: -Math.sin(simFrame.heading) };
+      const center = {
+        x: simFrame.x + direction * radius * left.x,
+        z: simFrame.z + direction * radius * left.z
+      };
+      
+      // Create a copy for calculation
+      const frameCopy = { x: simFrame.x, z: simFrame.z, heading: simFrame.heading };
+      updateFrame(frameCopy, seg);
+      
+      code += `    // Segment: Arc ${seg.angleDeg}deg ${seg.direction===1?'Left':'Right'}
+`;
+      code += `    const center = { x: ${center.x.toFixed(2)}, z: ${center.z.toFixed(2)} };
+`;
+      code += `    placeArc(center, ${radius}, ${0}, ${angle}, ${seg.count}, ${direction});
+`;
+      
+      simFrame = { x: frameCopy.x, z: frameCopy.z, heading: frameCopy.heading };
+    }
+  });
+  
+  code += `    // Finish Line at last point
+`;
+  code += `    finishLineMesh.position.set(${simFrame.x.toFixed(2)}, 0.02, ${simFrame.z.toFixed(2)});
+`;
+  code += `    finishLineMesh.rotation.set(-Math.PI/2, 0, ${(-simFrame.heading).toFixed(4)});
+`;
+  code += `}
+`;
+  
+  document.getElementById('codeOutput').value = code;
+}
+
+/**
+* UI Interaction
+*/
+function updateSegmentListUI() {
+  const list = document.getElementById('segmentList');
+  list.innerHTML = '';
+  segments.forEach((seg, index) => {
+    const div = document.createElement('div');
+    div.className = 'segment-item';
+    let badgeClass = '';
+    let text = '';
+    if(seg.type === 'straight') {
+      badgeClass = 'badge-straight';
+      text = `Straight ${seg.length}m`;
+    } else {
+      badgeClass = seg.direction === 1 ? 'badge-left' : 'badge-right';
+      text = `${seg.direction===1?'Left':'Right'} ${seg.angleDeg}° (R:${seg.radius})`;
+    }
+    div.innerHTML = `
+<span class="badge ${badgeClass}">${index+1}</span>
+<span>${text}</span>
+<button class="remove-btn" onclick="removeSegment(${index})">&times;</button>
+`;
+    list.appendChild(div);
+  });
+  list.scrollTop = list.scrollHeight;
+}
+
+window.removeSegment = function(index) {
+  segments.splice(index, 1);
+  updateAndRender();
+};
+
+document.getElementById('addStraight').addEventListener('click', addStraight);
+document.getElementById('addLeftTurn').addEventListener('click', () => addArc(1));
+document.getElementById('addRightTurn').addEventListener('click', () => addArc(-1));
+document.getElementById('clearAll').addEventListener('click', () => {
+  segments = [];
+  updateAndRender();
+});
+document.getElementById('copyCode').addEventListener('click', () => {
+  const textarea = document.getElementById('codeOutput');
+  textarea.select();
+  document.execCommand('copy');
+  const btn = document.getElementById('copyCode');
+  const originalText = btn.textContent;
+  btn.textContent = 'Copied!';
+  setTimeout(() => btn.textContent = originalText, 1500);
+});
+
+// Canvas Pan & Zoom
+canvas.addEventListener('mousedown', (e) => {
+  isDragging = true;
+  lastMouseX = e.clientX;
+  lastMouseY = e.clientY;
+  canvas.style.cursor = 'grabbing';
+});
+window.addEventListener('mouseup', () => {
+  isDragging = false;
+  canvas.style.cursor = 'grab';
+});
+window.addEventListener('mousemove', (e) => {
+  if (isDragging) {
+    const dx = e.clientX - lastMouseX;
+    const dy = e.clientY - lastMouseY;
+    offsetX += dx;
+    offsetY += dy;
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+    updateAndRender();
+  }
+});
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const zoomIntensity = 0.1;
+  if (e.deltaY < 0) {
+    scale *= (1 + zoomIntensity);
+  } else {
+    scale *= (1 - zoomIntensity);
+  }
+  updateAndRender();
+});
+function resize() {
+  canvas.width = canvas.parentElement.clientWidth;
+  canvas.height = canvas.parentElement.clientHeight;
+  updateAndRender();
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Initial Demo Track
+addStraight();
+segments[0].length = 40;
+addArc(1); // Left 90
+addStraight();
+segments[2].length = 30;
+addArc(-1); // Right 90
+addStraight();
+updateAndRender();
+</script>
+</body>
+</html>
