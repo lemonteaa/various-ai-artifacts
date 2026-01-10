@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>R&D: GPU Shader Fog of War (Three.js)</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --panel-bg: rgba(30, 30, 30, 0.85);
+            --text-color: #e0e0e0;
+            --accent-color: #00bcd4;
+            --accent-hover: #26c6da;
+            --danger-color: #ff5252;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+        }
+
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* UI Overlay */
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 320px;
+            pointer-events: none; /* Let clicks pass through to canvas */
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .panel {
+            background: var(--panel-bg);
+            padding: 20px;
+            border-radius: 8px;
+            backdrop-filter: blur(5px);
+            border-left: 4px solid var(--accent-color);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            pointer-events: auto; /* Re-enable clicks for panel */
+        }
+
+        h1 {
+            font-size: 1.2rem;
+            margin: 0 0 10px 0;
+            color: var(--accent-color);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        p {
+            font-size: 0.9rem;
+            line-height: 1.4;
+            margin-bottom: 10px;
+            color: #ccc;
+        }
+
+        .controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        button {
+            background: #333;
+            color: white;
+            border: 1px solid #555;
+            padding: 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: 600;
+        }
+
+        button:hover {
+            background: var(--accent-color);
+            border-color: var(--accent-color);
+            color: #000;
+        }
+
+        button.danger:hover {
+            background: var(--danger-color);
+            border-color: var(--danger-color);
+            color: white;
+        }
+
+        .toggle-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 10px;
+            font-size: 0.9rem;
+        }
+
+        /* Toggle Switch */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 40px;
+            height: 20px;
+        }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #555;
+            transition: .4s;
+            border-radius: 20px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 2px;
+            bottom: 2px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider { background-color: var(--accent-color); }
+        input:checked + .slider:before { transform: translateX(20px); }
+
+        #status-bar {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            font-family: monospace;
+            background: rgba(0,0,0,0.7);
+            padding: 5px 10px;
+            border-radius: 4px;
+            pointer-events: none;
+        }
+
+        .highlight {
+            color: var(--accent-color);
+            font-weight: bold;
+        }
+    </style>
+    <!-- Import Three.js as a module -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+
+    <div id="ui-layer">
+        <section class="panel">
+            <h1>R&D: Shader-Based FoW</h1>
+            <p>This Proof of Concept uses a custom <span class="highlight">GLSL Fragment Shader</span> to calculate visibility. Unlike CPU methods, the GPU processes every pixel in parallel.</p>
+            
+            <div class="toggle-row">
+                <span>Debug View (Mask)</span>
+                <label class="switch">
+                    <input type="checkbox" id="debug-toggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <div class="toggle-row">
+                <span>Animation</span>
+                <label class="switch">
+                    <input type="checkbox" id="anim-toggle" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <div class="controls">
+                <button id="add-unit">+ Add Unit</button>
+                <button id="clear-units" class="danger">Clear Units</button>
+            </div>
+            
+            <p style="margin-top: 15px; font-size: 0.8rem; border-top: 1px solid #444; padding-top: 10px;">
+                <strong>Instructions:</strong><br>
+                • Click ground to move selected unit.<br>
+                • Units act as "lights" cutting through the fog.<br>
+                • Check "Debug View" to see the math.
+            </p>
+        </section>
+    </div>
+
+    <div id="status-bar">Units: 0 | GPU Updates: Active</div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- Configuration ---
+        const MAX_UNITS = 50; // GLSL Uniform Array Size limit (easy to change)
+        const MAP_SIZE = 100;
+        const FOG_HEIGHT = 0.5; // Slightly above ground to avoid Z-fighting
+        
+        // --- Global State ---
+        let scene, camera, renderer, controls;
+        let fogPlane, fogMaterial;
+        let raycaster, mouse;
+        const units = []; // Stores { mesh, targetPosition, speed }
+        let isDebug = false;
+        let isAnimating = true;
+
+        // --- GLSL Shaders ---
+        // This is where the magic happens. The logic is GPU-side.
+
+        const vertexShader = `
+            varying vec2 vUv;
+            varying vec3 vWorldPosition;
+
+            void main() {
+                vUv = uv;
+                // Calculate world position of the vertex
+                vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+                vWorldPosition = worldPosition.xyz;
+                gl_Position = projectionMatrix * viewMatrix * worldPosition;
+            }
+        `;
+
+        const fragmentShader = `
+            uniform vec3 uUnitPositions[${MAX_UNITS}];
+            uniform float uUnitRadii[${MAX_UNITS}];
+            uniform int uUnitCount;
+            uniform bool uDebugMode;
+
+            varying vec3 vWorldPosition;
+
+            void main() {
+                float visibility = 0.0;
+
+                // Iterate through all units to check proximity
+                // In a production game with hundreds of units, use a Texture Lookup or Compute Shader
+                for (int i = 0; i < ${MAX_UNITS}; i++) {
+                    if (i >= uUnitCount) break;
+
+                    vec3 unitPos = uUnitPositions[i];
+                    float radius = uUnitRadii[i];
+
+                    // Calculate distance on the XZ plane (ignoring Y)
+                    float dist = distance(vWorldPosition.xz, unitPos.xz);
+
+                    if (dist < radius) {
+                        // Calculate falloff (Soft edge)
+                        // smoothstep(edge0, edge1, x) returns 0.0 if x <= edge0 and 1.0 if x >= edge1
+                        float contribution = 1.0 - smoothstep(radius * 0.7, radius, dist);
+                        
+                        // We take the max visibility (overlapping lights don't make it brighter, just visible)
+                        visibility = max(visibility, contribution);
+                    }
+                }
+
+                if (uDebugMode) {
+                    // Debug mode: Red = Hidden, Green = Visible
+                    gl_FragColor = vec4(visibility, visibility, 0.0, 1.0);
+                } else {
+                    // Production mode: Black with varying Alpha
+                    // If visibility is 1.0, alpha is 0.0 (fully transparent)
+                    // If visibility is 0.0, alpha is 1.0 (fully opaque fog)
+                    gl_FragColor = vec4(0.05, 0.05, 0.1, 1.0 - visibility); 
+                }
+            }
+        `;
+
+        // --- Initialization ---
+
+        function init() {
+            // 1. Scene Setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x121212);
+            
+            // Grid helper for visual reference
+            const gridHelper = new THREE.GridHelper(MAP_SIZE, MAP_SIZE/2, 0x333333, 0x222222);
+            scene.add(gridHelper);
+
+            // 2. Camera
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 40, 40);
+            camera.lookAt(0, 0, 0);
+
+            // 3. Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            // 4. Controls
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.maxPolarAngle = Math.PI / 2.2; // Don't go below ground
+
+            // 5. Lighting
+            const ambientLight = new THREE.AmbientLight(0x404040, 2); 
+            scene.add(ambientLight);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 2);
+            dirLight.position.set(20, 50, 20);
+            scene.add(dirLight);
+
+            // 6. Fog of War Plane Setup
+            createFogOfWar();
+
+            // 7. Interaction Setup
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+            
+            // Add initial units
+            addUnit(new THREE.Vector3(-10, 1, -10), 15);
+            addUnit(new THREE.Vector3(10, 1, 10), 12);
+
+            // Listeners
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('pointerdown', onPointerDown);
+            
+            setupUI();
+            animate();
+        }
+
+// --- CORRECTED FUNCTIONS ---
+
+function createFogOfWar() {
+    const geometry = new THREE.PlaneGeometry(MAP_SIZE, MAP_SIZE);
+    geometry.rotateX(-Math.PI / 2);
+
+    // FIX 1: Create an array of UNIQUE Vector3 objects
+    // Instead of fill(), we map to create new instances for every slot
+    const initialPositions = Array.from({ length: MAX_UNITS }, () => new THREE.Vector3());
+    const initialRadii = new Array(MAX_UNITS).fill(0);
+
+    fogMaterial = new THREE.ShaderMaterial({
+        vertexShader: vertexShader,
+        fragmentShader: fragmentShader,
+        uniforms: {
+            uUnitPositions: { value: initialPositions },
+            uUnitRadii: { value: initialRadii },
+            uUnitCount: { value: 0 },
+            uDebugMode: { value: false }
+        },
+        transparent: true,
+        side: THREE.DoubleSide,
+        depthWrite: false
+    });
+
+    fogPlane = new THREE.Mesh(geometry, fogMaterial);
+    fogPlane.position.y = FOG_HEIGHT;
+    scene.add(fogPlane);
+}
+
+function updateFogUniforms() {
+    const positions = fogMaterial.uniforms.uUnitPositions.value;
+    const radii = fogMaterial.uniforms.uUnitRadii.value;
+
+    // We need to flag the array for update so Three.js uploads it to GPU
+    let dataChanged = false;
+
+    for (let i = 0; i < MAX_UNITS; i++) {
+        if (i < units.length) {
+            const unit = units[i];
+            
+            // Only update if position actually changed (optimization)
+            if (!positions[i].equals(unit.mesh.position)) {
+                positions[i].copy(unit.mesh.position);
+                radii[i] = unit.sightRange;
+                dataChanged = true;
+            }
+        } else {
+            // Reset unused slots to deep underground so they don't affect map
+            // Note: Since we fixed the array initialization, this now only affects 
+            // the specific index 'i', not the whole array.
+            if (positions[i].y !== -1000) {
+                 positions[i].set(0, -1000, 0);
+                 radii[i] = 0;
+                 dataChanged = true;
+            }
+        }
+    }
+
+    fogMaterial.uniforms.uUnitCount.value = units.length;
+    
+    // FIX 2: Explicitly tell Three.js to update this uniform
+    if (dataChanged) {
+        fogMaterial.uniforms.uUnitPositions.needsUpdate = true;
+        fogMaterial.uniforms.uUnitRadii.needsUpdate = true;
+    }
+}
+
+
+
+        // --- Game Logic ---
+
+        function addUnit(position = null, range = null) {
+            if (units.length >= MAX_UNITS) {
+                console.warn("Max units reached for this shader demo");
+                return;
+            }
+
+            const radius = range || (10 + Math.random() * 10);
+            // Random pos if none provided
+            const pos = position || new THREE.Vector3(
+                (Math.random() - 0.5) * MAP_SIZE * 0.8,
+                1.5, // Sit slightly above fog
+                (Math.random() - 0.5) * MAP_SIZE * 0.8
+            );
+
+            // Unit Visual Representation
+            const geometry = new THREE.ConeGeometry(1, 3, 8);
+            geometry.rotateX(Math.PI / 2); // Point forward
+            const material = new THREE.MeshStandardMaterial({ 
+                color: 0x00bcd4, 
+                roughness: 0.3,
+                metalness: 0.8
+            });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.position.copy(pos);
+            
+            // Sight range visual ring (for debugging visual only)
+            const ringGeo = new THREE.RingGeometry(radius - 0.2, radius, 32);
+            ringGeo.rotateX(-Math.PI / 2);
+            const ringMat = new THREE.MeshBasicMaterial({ color: 0x00bcd4, transparent: true, opacity: 0.2, side: THREE.DoubleSide });
+            const ring = new THREE.Mesh(ringGeo, ringMat);
+            ring.position.y = -1; // Below the cone
+            mesh.add(ring);
+
+            scene.add(mesh);
+
+            units.push({
+                mesh: mesh,
+                targetPosition: null,
+                speed: 0.2 + Math.random() * 0.1,
+                sightRange: radius
+            });
+
+            updateStatusBar();
+        }
+
+        function updateUnits() {
+            // Move units towards targets
+            units.forEach(unit => {
+                if (unit.targetPosition) {
+                    const direction = new THREE.Vector3().subVectors(unit.targetPosition, unit.mesh.position);
+                    const distance = direction.length();
+                    
+                    if (distance < 0.5) {
+                        unit.targetPosition = null; // Arrived
+                    } else {
+                        direction.normalize();
+                        unit.mesh.position.add(direction.multiplyScalar(unit.speed));
+                        // Rotate unit to face target
+                        const lookTarget = unit.targetPosition.clone();
+                        lookTarget.y = unit.mesh.position.y; // Keep level
+                        unit.mesh.lookAt(lookTarget);
+                    }
+                }
+            });
+        }
+
+
+        // --- Interaction ---
+
+        function onPointerDown(event) {
+            // Only move if we clicked on the canvas, not UI
+            if (event.target.closest('.panel')) return;
+
+            // Normalize mouse coords
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            // Raycast against a mathematical plane at y=1.5 (unit height)
+            const planeZ = new THREE.Plane(new THREE.Vector3(0, 1, 0), -1.5);
+            const target = new THREE.Vector3();
+            
+            raycaster.ray.intersectPlane(planeZ, target);
+
+            if (target) {
+                // Check if we clicked a unit to select it, or ground to move
+                // For simplicity in this PoC: Click ground -> Move ALL units to that point (swarm)
+                // Or click ground -> Move nearest unit?
+                // Let's implement: Move all units to the clicked location to demonstrate performance easily
+                units.forEach(unit => {
+                    unit.targetPosition = target;
+                });
+                
+                // Add a visual marker for click
+                createClickMarker(target);
+            }
+        }
+
+        function createClickMarker(pos) {
+            const geo = new THREE.RingGeometry(0.5, 0.8, 16);
+            geo.rotateX(-Math.PI / 2);
+            const mat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.copy(pos);
+            mesh.position.y = 0.1;
+            scene.add(mesh);
+            
+            // Fade out effect
+            const startTime = Date.now();
+            const duration = 500;
+            
+            function animateMarker() {
+                const elapsed = Date.now() - startTime;
+                if (elapsed < duration) {
+                    const scale = 1 + (elapsed / duration) * 2;
+                    mesh.scale.set(scale, scale, scale);
+                    mesh.material.opacity = 1 - (elapsed / duration);
+                    mesh.material.transparent = true;
+                    requestAnimationFrame(animateMarker);
+                } else {
+                    scene.remove(mesh);
+                    geo.dispose();
+                    mat.dispose();
+                }
+            }
+            animateMarker();
+        }
+
+        // --- UI Handling ---
+
+        function setupUI() {
+            document.getElementById('add-unit').addEventListener('click', () => addUnit());
+            
+            document.getElementById('clear-units').addEventListener('click', () => {
+                units.forEach(u => scene.remove(u.mesh));
+                units.length = 0;
+                updateStatusBar();
+            });
+
+            document.getElementById('debug-toggle').addEventListener('change', (e) => {
+                isDebug = e.target.checked;
+                fogMaterial.uniforms.uDebugMode.value = isDebug;
+            });
+
+            document.getElementById('anim-toggle').addEventListener('change', (e) => {
+                isAnimating = e.target.checked;
+            });
+        }
+
+        function updateStatusBar() {
+            document.getElementById('status-bar').innerText = `Units: ${units.length} | GPU Updates: Active | Debug: ${isDebug ? 'ON' : 'OFF'}`;
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- Main Loop ---
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (isAnimating) {
+                updateUnits();
+            }
+
+            // Always update uniforms even if not moving, in case camera moves relative to world
+            // (Though in this shader implementation, fog is world-space, so only unit movement matters)
+            updateFogUniforms();
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // Start
+        init();
+
+    </script>
+</body>
+</html>
