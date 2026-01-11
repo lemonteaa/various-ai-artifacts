@@ -1,0 +1,2142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Racing Prototype: Physics Only & Custom Tracks</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: monospace; user-select: none; }
+canvas { display: block; }
+        
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 100;
+        }
+
+        /* Panels */
+        .panel {
+            background: rgba(0, 0, 0, 0.85); border: 1px solid #555;
+            padding: 15px; margin: 10px; pointer-events: auto;
+            backdrop-filter: blur(4px); color: #eee;
+        }
+
+        /* Bottom Left Info Panel */
+        #info-panel {
+            position: absolute; bottom: 20px; left: 20px;
+        }
+        h2 { margin: 0 0 10px 0; color: #00ffcc; font-size: 1.2rem; }
+        #info { font-size: 0.8rem; color: #aaa; margin-top: 5px; line-height: 1.4; }
+        .key { color: #fff; font-weight: bold; background: #333; padding: 2px 4px; border-radius: 3px; }
+
+        /* Right Panel: Speed & Timer */
+        #hud-right {
+            position: absolute; top: 20px; right: 20px; text-align: right;
+        }
+        .speed-val { font-size: 4rem; font-weight: 800; color: #00ffcc; line-height: 1; text-shadow: 0 0 10px rgba(0,255,204,0.3); }
+        .speed-unit { color: #666; text-transform: uppercase; font-size: 1rem; }
+        
+        #timer-display {
+            font-size: 2.5rem; font-weight: 700; color: #fff; margin-top: 5px; font-variant-numeric: tabular-nums;
+        }
+        .timer-label { font-size: 0.8rem; color: #aaa; text-transform: uppercase; }
+
+        /* Gear Indicator (Only for AT mode) */
+        #gear-display {
+            font-size: 1.5rem; color: #ffaa00; font-weight: bold; display: none; /* Hidden by default (Electric) */
+            margin-top: 5px;
+        }
+
+        /* Leaderboard */
+        #leaderboard {
+            position: absolute; bottom: 20px; right: 20px;
+            background: rgba(0,0,0,0.6); padding: 10px; border: 1px solid #444;
+            color: #fff; text-align: right; pointer-events: auto;
+            min-width: 150px;
+        }
+        #leaderboard h3 { margin: 0 0 5px 0; font-size: 1rem; color: #ffaa00; border-bottom: 1px solid #555; padding-bottom: 3px;}
+        .record { font-size: 0.9rem; margin: 2px 0; }
+        .record span { color: #00ffcc; }
+        .clear-btn {
+            background: transparent; border: 1px solid #666; color: #888;
+            font-size: 0.7rem; cursor: pointer; margin-top: 5px;
+        }
+        .clear-btn:hover { color: #fff; border-color: #fff; }
+
+        /* GUI Positioning Override to Top-Left */
+        .lil-gui.root {
+            position: absolute;
+            top: 20px !important;
+            left: 20px !important;
+            right: auto !important;
+        }
+
+/* Torque Curve Debug Panel */
+        #curve-panel {
+            display: none; /* Hidden by default */
+            position: absolute;
+            top: 50%; left: calc(100% - 170px);
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            border: 2px solid #00ffcc;
+            padding: 10px;
+            pointer-events: auto;
+            text-align: center;
+            z-index: 200;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        #curve-canvas {
+            background: #222;
+            border: 1px solid #444;
+            margin-bottom: 5px;
+        }
+        .close-btn {
+            background: #d32f2f; color: white; border: none;
+            padding: 5px 10px; cursor: pointer; font-weight: bold;
+        }
+        .toggle-curve-btn {
+            position: absolute; bottom: 160px; right: 20px;
+            background: #333; color: #aaa; border: 1px solid #555;
+            padding: 5px 10px; cursor: pointer; pointer-events: auto;
+            z-index: 150;
+        }
+        .toggle-curve-btn:hover { background: #444; color: #fff; }
+
+        /* Custom Track Upload Styles */
+        #custom-track-controls {
+            display: none; /* Hidden unless 'Custom' is selected */
+            margin-top: 10px;
+            border-top: 1px solid #555;
+            padding-top: 10px;
+        }
+        #file-input {
+            display: none;
+        }
+        .upload-btn {
+            background: #444;
+            color: white;
+            border: 1px solid #666;
+            padding: 5px 10px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            width: 100%;
+            text-align: center;
+        }
+        .upload-btn:hover { background: #555; }
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <!-- Top Left: GUI (Injected via JS) -->
+        
+        <!-- Torque Curve Debugger -->
+        <div id="curve-panel">
+            <h3 style="margin:0 0 10px 0; color:#00ffcc;">Torque Curve (AT Mode)</h3>
+            <canvas id="curve-canvas" width="300" height="200"></canvas>
+            <div style="font-size:0.8rem; color:#888;">X: RPM | Y: Torque (Nm)</div>
+            <button class="close-btn" onclick="document.getElementById('curve-panel').style.display='none'">Close</button>
+        </div>
+
+        <button id="toggle-curve-btn" class="toggle-curve-btn" onclick="document.getElementById('curve-panel').style.display='block'">Show Torque Curve</button>
+
+        <!-- Bottom Left: Info Panel -->
+        <div id="info-panel" class="panel">
+            <h2>SIMULATION STATUS</h2>
+            <div id="info">
+                <span class="key">WASD</span> to Drive <br>
+                <span class="key">SPACE</span> to Brake <br>
+                <span class="key">R</span> to Reset Car
+            </div>
+            <div style="margin-top:10px; font-size: 0.75rem; color: #666;">
+                Engine: <span id="engine-status-text">Electric</span>
+            </div>
+        </div>
+
+        <!-- Top Right: Speedo & Timer -->
+        <div id="hud-right" class="panel" style="background:transparent; border:none;">
+            <div class="speed-val" id="speed-display">0</div>
+            <div class="speed-unit">km/h</div>
+            <div id="gear-display">N</div>
+            <div class="timer-label">Lap Time</div>
+            <div id="timer-display">00:00.000</div>
+        </div>
+
+        <!-- Bottom Right: Leaderboard -->
+        <div id="leaderboard">
+            <h3>TOP RECORDS</h3>
+            <div id="record-list">No records yet</div>
+            <button id="clear-records" class="clear-btn">Clear Data</button>
+        </div>
+    </div>
+
+    <!-- Import Libraries -->
+    <script type="module">
+        import * as THREE from 'https://cdn.skypack.dev/three@0.136.0';
+        import { OrbitControls } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/controls/OrbitControls.js';
+        import { GUI } from 'https://cdn.skypack.dev/lil-gui@0.17.0';
+        import * as CANNON from 'https://cdn.skypack.dev/cannon-es@0.19.0';
+
+        // --- GLOBAL STATE ---
+        let scene, camera, renderer, controls;
+        let carMesh, wheelMeshes = []; 
+        let grid;
+        let cones = []; 
+        let startLineMesh, finishLineMesh;
+        
+        let physicsWorld, vehicle, chassisBody;
+
+
+// Create a dedicated group for the road
+let roadGroup;
+
+        let assetGroups = [];
+
+        const raycaster = new THREE.Raycaster();
+        const downVector = new THREE.Vector3(0, -1, 0); // Pointing down
+
+        // Surface Properties
+        const ROAD_DAMPING = 0.01;   // Normal tarmac (very little drag)
+        const GRASS_DAMPING = 0.5;   // Heavy mud/sand (high drag)
+        
+        // Optional: Adjust angular damping too if you want the car to stabilize on grass
+        const ROAD_ANGULAR_DAMPING = 0.01;
+        const GRASS_ANGULAR_DAMPING = 0.5;
+
+let ambient, sun;
+let carLights = {};
+        
+        // Inputs
+        const inputs = { w: false, a: false, s: false, d: false, space: false };
+        
+        // Transmission State (Internal Combustion)
+        const transmission = {
+            gear: 1,
+            rpm: 1000,
+            gearRatios: [3.5, 2.5, 1.8, 1.2, 0.9], // 1st to 5th
+            finalDrive: 3.5,
+            redline: 7000,
+            optimalRPM: 5500,
+            idleRPM: 1000,
+            clutch: false, // Simple clutch flag for logic
+            smoothedVelocity: 0, // For smoothing RPM calculation
+
+            // Tuning Debug
+            showCurve: false,
+        };
+
+        // Timer State
+        const timerState = {
+            active: false,
+            startTime: 0,
+            // Line Segment Definitions for Robust Triggering
+            startP1: new THREE.Vector3(),
+            startP2: new THREE.Vector3(),
+            finishP1: new THREE.Vector3(),
+            finishP2: new THREE.Vector3(),
+            prevSideStart: 0,
+            prevSideFinish: 0,
+            records: [],
+            finishX: 0,
+            finishZ: 0
+        };
+        const prevCarPos = new THREE.Vector3(); 
+
+        // Physics / Game Parameters
+        const params = {
+            gravity: -9.82,
+            mass: 150,            
+            brakeForce: 15,
+            maxSteer: 0.5,
+            frictionSlip: 2.0,   
+            suspensionStiffness: 30,
+            suspensionRestLength: 0.3,
+            rollInfluence: 0.1,
+            substeps: 5,          
+            cameraMode: 'Chase', // 'Driver', 'Chase', 'Orbit'
+            
+            // Engine Settings
+            engineType: 'Electric', // 'Electric' or 'AT'
+            peakPower: 800, // For Electric simulation (Force)
+            maxEnginePower: 120, // Base Power scalar (Nm for AT, Force multiplier for Elec)
+            
+            // Course Builder Params
+            coursePreset: 'U-Turn', // Options: 'U-Turn', 'Empty', 'Custom'
+            roadWidth: 12.0,       
+            straightLength: 40,   
+            turnRadius: 25,       
+            exitLength: 40,       
+            
+            resetPhysics: () => resetCarPhysics(),
+
+            isNight: false,
+        };
+
+        // UI Elements
+        const uiSpeed = document.getElementById('speed-display');
+        const uiTimer = document.getElementById('timer-display');
+        const uiGear = document.getElementById('gear-display');
+        const uiRecords = document.getElementById('record-list');
+        const uiEngineStatus = document.getElementById('engine-status-text');
+        let gui; 
+
+
+
+
+        // ==========================================
+        // CLASS: AssetGenerator
+        // This is the reusable class for your game.
+        // ==========================================
+        class AssetGenerator {
+            
+            /**
+             * Creates a procedural stadium.
+             * @param {Object} config - Configuration object matching the GUI state.
+             * @returns {THREE.Group} - The root 3D object.
+             */
+            static createStadium(config) {
+                const group = new THREE.Group();
+                const { radius, startAngle, endAngle, length, tiers, rowsPerTier, seatWidth, rowDepth, crowdDensity, colorSeats, colorCrowd, addRoof, roofHeight, roofColor, mode, colorBase, audienceColors, colorPillar } = config;
+
+                const seatsData = [];
+                let maxR = 0;
+                let maxDepth = 0; // For linear
+
+                const startRad = THREE.MathUtils.degToRad(startAngle);
+                const endRad = THREE.MathUtils.degToRad(endAngle);
+                const angleSpan = endRad - startRad;
+
+                // --- 1. Calculate Positions ---
+                for (let t = 0; t < tiers; t++) {
+                    const tierOffset = t * (rowsPerTier * rowDepth);
+                    for (let r = 0; r < rowsPerTier; r++) {
+                        const rowOffset = tierOffset + (r * rowDepth);
+                        
+                        if (mode === 'Arc') {
+                            const currentRadius = radius + rowOffset;
+                            const circumference = currentRadius * angleSpan;
+                            const seatsInRow = Math.max(1, Math.floor(circumference / seatWidth));
+                            maxR = Math.max(maxR, currentRadius);
+
+                            for (let s = 0; s < seatsInRow; s++) {
+                                const ratio = s / seatsInRow;
+                                const angle = startRad + (ratio * angleSpan);
+                                const x = Math.cos(angle) * currentRadius;
+                                const z = Math.sin(angle) * currentRadius;
+                                const y = (r + (t * rowsPerTier)) * 0.5;
+                                seatsData.push({ x, y, z, rotY: -angle });
+                            }
+                        } else { // Linear
+                            const currentDepth = 5 + rowOffset;
+                            const seatsInRow = Math.floor(length / seatWidth);
+                            maxDepth = Math.max(maxDepth, currentDepth);
+
+                            for (let s = 0; s < seatsInRow; s++) {
+                                const z = -length/2 + (s * seatWidth) + (seatWidth/2);
+                                const x = currentDepth;
+                                const y = (r + (t * rowsPerTier)) * 0.5;
+                                seatsData.push({ x, y, z, rotY: Math.PI });
+                            }
+                        }
+                    }
+                }
+
+                if (seatsData.length === 0) return group;
+
+                // --- 2. Base Platform ---
+                //const baseMat = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.8 });
+                const baseMat = new THREE.MeshStandardMaterial({ color: colorBase, roughness: 0.8 });
+                const baseHeight = 1.0;
+
+                if (mode === 'Arc') {
+                    /*const shape = new THREE.Shape();
+                    shape.absarc(0, 0, maxR + 2, endRad, startRad, false);
+                    const hole = new THREE.Path();
+                    hole.absarc(0, 0, radius - 2, startRad, endRad, true);
+                    shape.holes.push(hole);*/
+                    // Create a proper Donut Sector shape without using 'holes' to fix geometry artifacts
+                    // We trace the outer arc CCW, then line to inner, trace inner arc CW, then close.
+                    const shape = new THREE.Shape();
+                    const outerR = maxR + 2;
+                    const innerR = radius - 2;
+
+                    // Start at outer StartAngle
+                    const startX = Math.cos(startRad) * outerR;
+                    const startY = -Math.sin(startRad) * outerR;
+                    shape.moveTo(startX, startY);
+
+                    // Outer Arc (CCW from Start to End)
+                    shape.absarc(0, 0, outerR, -startRad, -endRad, true);
+
+                    // Line to Inner EndAngle
+                    const endX = Math.cos(endRad) * innerR;
+                    const endY = -Math.sin(endRad) * innerR;
+                    shape.lineTo(endX, endY);
+
+                    // Inner Arc (CW from End to Start) to create the 'band' effect
+                    shape.absarc(0, 0, innerR, -endRad, -startRad, false);
+
+                    // Close path (line back to outer start)
+                    shape.lineTo(startX, startY);
+
+ 	
+                    const geometry = new THREE.ExtrudeGeometry(shape, { depth: baseHeight, bevelEnabled: false });
+                    geometry.rotateX(-Math.PI / 2); 
+                    const baseMesh = new THREE.Mesh(geometry, baseMat);
+                    baseMesh.receiveShadow = true;
+                    baseMesh.castShadow = true;
+                    group.add(baseMesh);
+                } else {
+                    const width = maxDepth + 4; // Using maxDepth as X-extent here
+                    const baseGeo = new THREE.BoxGeometry(width, baseHeight, length);
+                    const baseMesh = new THREE.Mesh(baseGeo, baseMat);
+                    baseMesh.position.set(width/2, baseHeight/2, 0);
+                    baseMesh.receiveShadow = true;
+                    baseMesh.castShadow = true;
+                    group.add(baseMesh);
+                }
+
+                // --- 3. Seats & Crowd ---
+                const seatGeo = new THREE.BoxGeometry(seatWidth, 0.5, 1);
+                const seatMat = new THREE.MeshStandardMaterial({ color: colorSeats });
+                const seatMesh = new THREE.InstancedMesh(seatGeo, seatMat, seatsData.length);
+                seatMesh.castShadow = true;
+                seatMesh.receiveShadow = true;
+
+                const crowdCount = Math.floor(seatsData.length * crowdDensity);
+                const personGeo = new THREE.CylinderGeometry(0.35, 0.35, 1.6, 6);
+                //const personMat = new THREE.MeshStandardMaterial({ color: colorCrowd });
+                // Note: colorCrowd is deprecated, using audienceColors array
+                const personMat = new THREE.MeshStandardMaterial({ color: 0xffffff }); // Base white, tinted by instanceColor
+                const personMesh = new THREE.InstancedMesh(personGeo, personMat, crowdCount);
+                personMesh.castShadow = true;
+                personMesh.receiveShadow = true;
+                personMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(crowdCount * 3), 3);
+
+                const dummy = new THREE.Object3D();
+                const tempColor = new THREE.Color();
+
+                let personIdx = 0;
+
+                // Shuffle indices for random crowd distribution
+                const indices = seatsData.map((_, i) => i);
+                for (let i = indices.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [indices[i], indices[j]] = [indices[j], indices[i]];
+                }
+                const personIndices = new Set(indices.slice(0, crowdCount));
+
+                for (let i = 0; i < seatsData.length; i++) {
+                    const d = seatsData[i];
+                    dummy.position.set(d.x, d.y + 0.25, d.z);
+                    dummy.rotation.set(0, d.rotY, 0);
+                    dummy.updateMatrix();
+                    seatMesh.setMatrixAt(i, dummy.matrix);
+
+                    if (personIndices.has(i)) {
+                        dummy.position.set(d.x, d.y + 0.25 + 0.8, d.z);
+                        dummy.scale.set(1, 0.9 + Math.random()*0.2, 1);
+                        dummy.updateMatrix();
+                        personMesh.setMatrixAt(personIdx++, dummy.matrix);
+
+                        
+                        // Assign random color from palette
+                        const randomCol = audienceColors[Math.floor(Math.random() * audienceColors.length)];
+                        tempColor.set(randomCol);
+                        personMesh.setColorAt(personIdx, tempColor);
+                        
+
+                        dummy.scale.set(1, 1, 1);
+                    }
+                }
+                group.add(seatMesh);
+                group.add(personMesh);
+
+                // --- 4. Roof ---
+                if (addRoof) {
+                    const roofMat = new THREE.MeshStandardMaterial({ color: roofColor, side: THREE.DoubleSide, transparent: true, opacity: 0.9 });
+                    if (mode === 'Arc') {
+                        //const roofR = maxR + 2;
+                        const shape = new THREE.Shape();
+
+                        /*shape.absarc(0, 0, roofR, endRad, startRad, false);
+                        const hole = new THREE.Path();
+                        hole.absarc(0, 0, radius - 2, startRad, endRad, true);
+                        shape.holes.push(hole);*/
+                    // Create a proper Donut Sector shape without using 'holes' to fix geometry artifacts
+                    // We trace the outer arc CCW, then line to inner, trace inner arc CW, then close.
+                    //const shape = new THREE.Shape();
+                    const outerR = maxR + 2;
+                    const innerR = radius - 2;
+
+                    // Start at outer StartAngle
+                    const startX = Math.cos(startRad) * outerR;
+                    const startY = -Math.sin(startRad) * outerR;
+                    shape.moveTo(startX, startY);
+
+                    // Outer Arc (CCW from Start to End)
+                    shape.absarc(0, 0, outerR, -startRad, -endRad, true);
+
+                    // Line to Inner EndAngle
+                    const endX = Math.cos(endRad) * innerR;
+                    const endY = -Math.sin(endRad) * innerR;
+                    shape.lineTo(endX, endY);
+
+                    // Inner Arc (CW from End to Start) to create the 'band' effect
+                    shape.absarc(0, 0, innerR, -endRad, -startRad, false);
+
+                    // Close path (line back to outer start)
+                    shape.lineTo(startX, startY);
+
+let roofR = outerR;
+
+
+                        const roofGeo = new THREE.ExtrudeGeometry(shape, { depth: 2, bevelEnabled: false });
+                        roofGeo.rotateX(-Math.PI/2);
+                        const roofM = new THREE.Mesh(roofGeo, roofMat);
+                        roofM.position.y = roofHeight;
+                        group.add(roofM);
+
+                        // Pillars
+                        const pillarGeo = new THREE.CylinderGeometry(0.5, 0.5, roofHeight, 8);
+                        const pillarMat = new THREE.MeshStandardMaterial({ color: 0x888888 });
+                        [startRad, endRad].forEach(ang => {
+                            const pX = Math.cos(ang) * roofR;
+                            const pZ = Math.sin(ang) * roofR;
+                            //const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+                            const pillar = new THREE.Mesh(pillarGeo, new THREE.MeshStandardMaterial({ color: colorPillar }));
+                            pillar.position.set(pX, roofHeight/2, pZ);
+                            group.add(pillar);
+                        });
+                    } else {
+                        const width = maxDepth + 4;
+const pillarMat = new THREE.MeshStandardMaterial({ color: colorPillar });
+                        const roofGeo = new THREE.BoxGeometry(width, 0.5, length + 4);
+                        const roofM = new THREE.Mesh(roofGeo, roofMat);
+                        roofM.position.set(width/2, roofHeight, 0);
+                        group.add(roofM);
+
+                        const pillarGeo = new THREE.CylinderGeometry(0.5, 0.5, roofHeight, 8);
+                        //const pillarMat = new THREE.MeshStandardMaterial({ color: 0x888888 });
+                        [length/2, -length/2].forEach(z => {
+                            const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+                            pillar.position.set(width/2 - 2, roofHeight/2, z);
+                            group.add(pillar);
+                        });
+                    }
+                }
+                return group;
+            }
+            static dispose(group) {
+                group.traverse((obj) => {
+                    if (obj.isMesh) {
+                        obj.geometry?.dispose();
+                        if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
+                        else obj.material?.dispose();
+                    }
+                });
+            }
+        }
+
+
+
+function setNightTime(v) {
+
+if (v) {
+scene.background.setHex(0x222222);
+scene.fog = new THREE.Fog(0x222222, 20, 100);
+
+ambient.intensity = 0.6;
+sun.intensity = 0.6;
+
+carLights.left.visible = true;
+carLights.right.visible = true;
+
+} else {
+scene.background.setHex(0x87CEEB);
+scene.fog = null;
+
+ambient.intensity = 0.4;
+sun.intensity = 1.2;
+
+carLights.left.visible = false;
+carLights.right.visible = false;
+
+}
+
+}
+
+
+        // --- MATH IMPORTED FROM DESIGNER TOOL ---
+        /**
+         * Core Math: Frame Transformation
+         * This function calculates the new position and heading of the "car cursor"
+         * based on the current frame and the segment definition.
+         */
+        function updateFrame(frame, seg) {
+          if (seg.type === 'straight') {
+            frame.x += Math.sin(frame.heading) * seg.length;
+            frame.z += Math.cos(frame.heading) * seg.length;
+          } else if (seg.type === 'arc') {
+            const radius = seg.radius;
+            const angle = seg.angleRad ? seg.angleRad : seg.angleDeg * 2 * Math.PI / 360;
+            const direction = seg.direction; // 1 = left, -1 = right
+
+            // Define basis vectors in global frame
+            // Forward: {x: sin(heading), z: cos(heading)}
+            // Left: {x: cos(heading), z: -sin(heading)}
+            const left = { x: Math.cos(frame.heading), z: -Math.sin(frame.heading) };
+            const forward = { x: Math.sin(frame.heading), z: Math.cos(frame.heading) };
+
+            // Calculate center displacement from current position
+            const center = {
+              x: direction * radius * left.x,
+              z: direction * radius * left.z
+            };
+
+            // Calculate end position relative to center
+            let endPosLocalRelativeToCenter;
+            if (direction === 1) {
+              // Left turn: Start at (-r,0) relative to center, end at (-r*cos(angle), r*sin(angle))
+              endPosLocalRelativeToCenter = {
+                x: -radius * Math.cos(angle),
+                z: radius * Math.sin(angle)
+              };
+            } else {
+              // Right turn: Start at (r,0) relative to center, end at (r*cos(angle), r*sin(angle))
+              endPosLocalRelativeToCenter = {
+                x: radius * Math.cos(angle),
+                z: radius * Math.sin(angle)
+              };
+            }
+
+            // Update heading
+            frame.heading += direction * angle;
+
+            // Update position
+            // Current position + center displacement + rotated end position
+            frame.x += center.x + 
+                       endPosLocalRelativeToCenter.x * left.x + 
+                       endPosLocalRelativeToCenter.z * forward.x;
+            frame.z += center.z + 
+                       endPosLocalRelativeToCenter.x * left.z + 
+                       endPosLocalRelativeToCenter.z * forward.z;
+          }
+        }
+
+        // --- CUSTOM TRACK LOADER LOGIC ---
+        /**
+         * Process a segment and place Road Mesh in the 3D world
+         */
+        function processSegmentToRoadMesh(currentFrame, seg) {
+            // Shared material for the road
+            const material = new THREE.MeshStandardMaterial({ 
+                color: 0x333333, 
+                roughness: 0.8,
+                side: THREE.DoubleSide 
+            });
+
+            if (seg.type === 'straight') {
+                // Start point
+                const p1 = { x: currentFrame.x, z: currentFrame.z };
+                
+                // Calculate end point
+                const nextFrame = { ...currentFrame };
+                updateFrame(nextFrame, seg);
+                const p2 = { x: nextFrame.x, z: nextFrame.z };
+
+                placeStraightMesh(p1, p2, params.roadWidth, material);
+
+            } else if (seg.type === 'arc') {
+                const radius = seg.radius;
+                const angle = seg.angleRad ? seg.angleRad : seg.angleDeg * 2 * Math.PI / 360;
+                const direction = seg.direction;
+
+                // Calculate Center of Arc
+                // Note: Keeping original logic to ensure compatibility with your coordinate system
+                const left = { x: Math.cos(currentFrame.heading), z: -Math.sin(currentFrame.heading) };
+                const center = {
+                    x: currentFrame.x + direction * radius * left.x,
+                    z: currentFrame.z + direction * radius * left.z
+                };
+
+                placeArcMesh(currentFrame, center, radius, angle, direction, params.roadWidth, material);
+
+
+
+            // Calculate Start Angle (same as your Road Mesh logic)
+            const dx = currentFrame.x - center.x;
+            const dz = currentFrame.z - center.z;
+            const startAngle = Math.atan2(dz, dx);
+
+            // Define Board Properties
+            const boardHeight = 0.8;
+            const boardThickness = 0.2;
+
+            // Place Outer Barrier (Outside the road)
+            const outerRadius = radius + (params.roadWidth / 2) + (boardThickness/2);
+            // Push it slightly further out so the road edge touches the inner side of the board
+            const barrierOuterR = radius + (params.roadWidth / 2); 
+            
+            createArcBarrier(center, barrierOuterR, startAngle, (direction===-1?angle:-angle), boardHeight, boardThickness, 0xff0000);
+
+            // (Optional) Place Inner Barrier
+            // const innerRadius = radius - (params.roadWidth / 2) - (boardThickness/2);
+            // createArcBarrier(center, innerRadius, startAngle, (direction===-1?angle:-angle), boardHeight, boardThickness, 0xff0000);
+
+
+            }
+        }
+
+        function placeStraightMesh(p1, p2, width, material) {
+            const dx = p2.x - p1.x;
+            const dz = p2.z - p1.z;
+            const len = Math.sqrt(dx*dx + dz*dz);
+
+            // Create Plane Geometry (Width X, Length Y)
+            const geometry = new THREE.PlaneGeometry(width, len);
+            const mesh = new THREE.Mesh(geometry, material);
+
+mesh.rotation.order = 'YXZ';
+
+            // Position at midpoint
+            mesh.position.set((p1.x + p2.x) / 2, 0, (p1.z + p2.z) / 2);
+
+            // Rotation
+            // 1. Lay flat on XZ plane (Plane default is XY)
+            mesh.rotation.x = -Math.PI / 2;
+
+            // 2. Align length with the road direction
+            // Default Plane length points to -Z (after rotation.x).
+            // We need to calculate angle from -Z to our vector (dx, dz)
+            // Angle of target vector:
+            const targetAngle = Math.atan2(dz, dx);
+            // Angle of current vector (-Z) is -PI/2
+// - (-Math.PI / 2)
+            mesh.rotation.y = Math.PI/2 -targetAngle;
+//console.log(mesh.rotation);
+
+// TAG THIS MESH AS ROAD
+mesh.userData = { isRoad: true }; 
+
+            roadGroup.add(mesh);
+        }
+
+        function placeArcMesh(startPoint, center, radius, angle, direction, width, material) {
+            // Determine Inner and Outer radii
+            const rIn = Math.max(0, radius - (width / 2));
+            const rOut = radius + (width / 2);
+
+            // Calculate start angle in World Space
+            // Vector from Center to StartPoint
+            const dx = startPoint.x - center.x;
+            const dz = startPoint.z - center.z;
+            const thetaStart = Math.atan2(dz, dx);
+
+            // Determine arc length and direction
+            // RingGeometry draws counter-clockwise for positive thetaLength
+            // Direction 1 (Left) -> CCW (Positive)
+            // Direction -1 (Right) -> CW (Negative)
+            const thetaLength = (direction === 1) ? angle : -angle;
+
+            // Create Ring Geometry
+            // 32 radial segments for smoothness, 1 tubular segment (road has no thickness)
+            const geometry = new THREE.RingGeometry(rIn, rOut, 32, 1, -1 * thetaStart, thetaLength);
+            const mesh = new THREE.Mesh(geometry, material);
+
+            // Rotation
+            // RingGeometry is on XY plane. Rotate -PI/2 around X to lie flat on XZ.
+            //mesh.rotation.x = (direction === 1) ? -Math.PI / 2 : Math.PI / 2;
+mesh.rotation.x = -Math.PI / 2;
+
+            // Position at center
+            mesh.position.set(center.x, 0, center.z);
+
+// TAG THIS MESH AS ROAD
+mesh.userData = { isRoad: true }; 
+
+            roadGroup.add(mesh);
+        }
+
+function clearCurrentRoad() {
+    // Loop through all children (meshes) in the group
+    for (let i = roadGroup.children.length - 1; i >= 0; i--) {
+        const mesh = roadGroup.children[i];
+        
+        // Remove mesh from the group
+        roadGroup.remove(mesh);
+
+        // 1. Dispose Geometry to free GPU memory
+        if (mesh.geometry) mesh.geometry.dispose();
+
+        // 2. Dispose Material if it is unique to this mesh
+        // If you created a NEW material for every segment (like in the previous snippet), dispose it.
+        // If you reuse a single global material variable, DO NOT dispose it here.
+        if (mesh.material) mesh.material.dispose();
+    }
+}
+
+
+        // Helper to create a vertical wall barrier along an arc
+        function createArcBarrier(center, radius, startAngle, angleLength, height, thickness, color) {
+            // 1. Setup Visuals
+            const visualMaterial = new THREE.MeshStandardMaterial({ 
+                color: color, 
+                roughness: 0.5 
+            });
+
+            // 2. Setup Physics Material (for rebound effect)
+            const physicsMaterial = new CANNON.Material({ 
+                restitution: 0.5, // Bounciness (0.0 = no bounce, 1.0 = perfect bounce)
+                friction: 0.3 
+            });
+
+            // 3. Calculate Segmentation
+            // We create one box per meter of arc length to ensure the curve is smooth enough for collision
+            const arcLength = Math.abs(radius * angleLength);
+            const segmentLength = 1.0; // Length of each board piece
+            const numSegments = Math.max(1, Math.floor(arcLength / segmentLength));
+            const angleStep = angleLength / numSegments;
+
+            for (let i = 0; i < numSegments; i++) {
+                const currentAngle = startAngle + i * angleStep;
+                const nextAngle = currentAngle + angleStep;
+                
+                // Mid-angle for positioning the segment
+                const midAngle = currentAngle + (angleStep / 2);
+
+                // --- POSITION ---
+                // Polar to Cartesian coordinates
+                const x = center.x + radius * Math.cos(midAngle);
+                const z = center.z + radius * Math.sin(midAngle);
+
+                // --- ROTATION ---
+                // Calculate the tangent vector (direction of the road at this point)
+                // Vector from current point to next point
+                const dx = (center.x + radius * Math.cos(nextAngle)) - x;
+                const dz = (center.z + radius * Math.sin(nextAngle)) - z;
+                
+                // Y-rotation needed to align the box's Z-axis (length) with the tangent
+                const rotationY = Math.atan2(dz, dx);
+
+                // --- DIMENSIONS ---
+                // Actual length of this segment (chord length)
+                const segmentWidth = Math.sqrt(dx*dx + dz*dz);
+
+                // --- THREE.JS MESH ---
+                // Box Geometry: Thickness (X), Height (Y), SegmentWidth (Z)
+                // We align the Z-axis of the box with the road direction
+                const geo = new THREE.BoxGeometry(thickness, height, segmentWidth);
+                const mesh = new THREE.Mesh(geo, visualMaterial);
+                mesh.position.set(x, height / 2, z);
+                mesh.rotation.y = rotationY;
+                scene.add(mesh);
+
+                // --- CANNON.JS BODY ---
+                const shape = new CANNON.Box(new CANNON.Vec3(thickness/2, height/2, segmentWidth/2));
+                
+                // Mass 0 makes it static (unmovable)
+                const body = new CANNON.Body({ mass: 0, material: physicsMaterial }); 
+                
+                body.addShape(shape);
+                body.position.set(x, height / 2, z);
+                
+                // Match rotation using Quaternion
+                const q = new CANNON.Quaternion();
+                q.setFromAxisAngle(new CANNON.Vec3(0,1,0), rotationY);
+                body.quaternion = q;
+
+                physicsWorld.addBody(body);
+            }
+        }
+
+        // --- USAGE EXAMPLE ---
+        // Put this inside your `processSegmentToRoadMesh` function (in the 'arc' section):
+
+        /*
+        else if (seg.type === 'arc') {
+            // ... [Your existing radius and center calculations] ...
+            
+
+        }
+        */
+
+        function loadCustomTrackFromJSON(segments) {
+
+            AssetGenerator.dispose(assetGroups[0]);
+            assetGroups[0].clear();
+
+// 2. Define configuration
+const stadiumConfig = {
+    mode: 'Linear',
+    radius: 40,
+    startAngle: 91.44,
+    endAngle: 206.64,
+    tiers: 2,
+    crowdDensity: 0.279,
+
+colorBase: '#7c2e55',
+colorPillar: '#0488c8',
+roofColor: '#f9e9e3',
+addRoof: true, roofHeight: 15,
+length: 100, rowsPerTier: 8, seatWidth: 1.2, rowDepth: 1.5,
+audienceColors: ['#ffffff', '#ffcccb', '#add8e6', '#e6e6fa'] // Random audience palette
+};
+
+// 3. Generate and add to scene
+const stadium = AssetGenerator.createStadium(stadiumConfig);
+stadium.rotation.y = Math.PI;
+stadium.position.x = -15;
+assetGroups[0].add(stadium);
+
+
+console.log(segments);
+
+clearCurrentRoad();
+
+            clearCones();
+            resetTimer();
+
+            startLineMesh.visible = true;
+            finishLineMesh.visible = true;
+            
+            let currentFrame = { x: 0, z: 0, heading: 0 }; // Start at origin, facing +Z
+
+            segments.forEach((seg) => {
+console.log(currentFrame);
+                // Process cones
+                //processSegmentToCones(currentFrame, seg);
+processSegmentToRoadMesh(currentFrame, seg);
+                // Advance the frame
+                updateFrame(currentFrame, seg);
+            });
+
+            // Place Finish Line at the very end
+            finishLineMesh.scale.set(params.roadWidth, 1, 2);
+            finishLineMesh.position.set(currentFrame.x, 0.02, currentFrame.z);
+            finishLineMesh.rotation.set(-Math.PI/2, 0, -currentFrame.heading);
+
+            // Calculate Finish Line Endpoints
+            const finishEnds = getLineEndpoints(finishLineMesh, params.roadWidth);
+            timerState.finishP1.copy(finishEnds.p1);
+            timerState.finishP2.copy(finishEnds.p2);
+
+            // Update finish state for timer
+            timerState.finishX = currentFrame.x;
+            timerState.finishZ = currentFrame.z;
+
+            // Start Line at 0,0
+            startLineMesh.scale.set(params.roadWidth, 1, 2);
+            startLineMesh.position.set(0, 0.02, 0);
+            startLineMesh.rotation.set(-Math.PI/2, 0, 0);
+
+            // Calculate Start Line Endpoints
+            const startEnds = getLineEndpoints(startLineMesh, params.roadWidth);
+            timerState.startP1.copy(startEnds.p1);
+            timerState.startP2.copy(startEnds.p2);
+
+            resetCarPhysics();
+        }
+
+
+        function init() {
+            // 1. Scene Setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB); // Sky Blue
+
+            // 2. Camera
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 10, -15);
+
+            // 3. Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            // 4. Lights
+            ambient = new THREE.AmbientLight(0xffffff, 0.4);
+            scene.add(ambient);
+            sun = new THREE.DirectionalLight(0xffffff, 1.2); 
+            sun.position.set(50, 100, 50);
+            sun.castShadow = true;
+            sun.shadow.mapSize.width = 2048;
+            sun.shadow.mapSize.height = 2048;
+            sun.shadow.camera.left = -100;
+            sun.shadow.camera.right = 100;
+            sun.shadow.camera.top = 100;
+            sun.shadow.camera.bottom = -100;
+            scene.add(sun);
+
+            // 5. Orbit Controls (for debugging)
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.enabled = false; 
+
+            // 6. Build World
+            createVisuals();
+            initPhysicsWorld(); 
+            initGUI();
+            loadRecords();
+
+roadGroup = new THREE.Group();
+roadGroup.name = "RoadGroup"; // Optional, helpful for debugging
+scene.add(roadGroup);
+
+assetGroups.push(new THREE.Group());
+scene.add(assetGroups[0]);
+            
+            // Load Course immediately (Default U-Turn)
+            loadCourseFromParams();
+
+            // 7. Events
+            window.addEventListener('resize', onResize);
+            window.addEventListener('keydown', e => handleKey(e, true));
+            window.addEventListener('keyup', e => handleKey(e, false));
+            document.getElementById('clear-records').addEventListener('click', clearRecords);
+            
+
+            // 8. Start Loop
+            animate();
+        }
+
+        function createCheckeredTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64; canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0,0,64,64);
+            ctx.fillStyle = '#000000';
+            for(let y=0; y<2; y++) {
+                for(let x=0; x<2; x++) {
+                    if ((x+y)%2===0) ctx.fillRect(x*32, y*32, 32, 32);
+                }
+            }
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.magFilter = THREE.NearestFilter;
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function createVisuals() {
+            // Grid
+            grid = new THREE.GridHelper(600, 150, 0x00ffcc, 0xffffff);
+            scene.add(grid);
+
+            // Ground Plane
+            const plane = new THREE.Mesh(
+                new THREE.PlaneGeometry(600, 600),
+                new THREE.MeshStandardMaterial({ color: 0x5C8A45, roughness: 1.0 })
+            );
+            plane.rotation.x = -Math.PI/2;
+            plane.position.y = -0.05;
+            plane.receiveShadow = true;
+            scene.add(plane);
+
+            // Line Textures
+            const lineTex = createCheckeredTexture();
+            const lineGeo = new THREE.PlaneGeometry(1, 1);
+            const lineMat = new THREE.MeshBasicMaterial({ 
+                map: lineTex, 
+                transparent: true, 
+                opacity: 0.8,
+                side: THREE.DoubleSide
+            });
+            
+            startLineMesh = new THREE.Mesh(lineGeo, lineMat);
+            startLineMesh.rotation.x = -Math.PI/2;
+            startLineMesh.position.y = 0.02; 
+            scene.add(startLineMesh);
+
+            finishLineMesh = new THREE.Mesh(lineGeo, lineMat);
+            finishLineMesh.rotation.x = -Math.PI/2;
+            finishLineMesh.position.y = 0.02;
+            scene.add(finishLineMesh);
+
+            // Car Chassis
+            /*const carGeo = new THREE.BoxGeometry(1.8, 0.6, 4);
+            const carMat = new THREE.MeshStandardMaterial({ color: 0xff3366 });
+            carMesh = new THREE.Mesh(carGeo, carMat);
+            carMesh.castShadow = true;
+            scene.add(carMesh);*/
+            // --- Car Chassis (Procedural Race Car - Updated) ---
+
+carLights = {};
+
+            // 1. Materials
+            const mainColor = 0xff3366; // Your original Red
+            const accentColor = 0x222222; //0xea823c // 0x222222; // Dark Grey/Carbon for contrast
+
+            const paintMat = new THREE.MeshPhysicalMaterial({
+                color: mainColor,
+                metalness: 0.6,
+                roughness: 0.2,
+                clearcoat: 1.0,
+                clearcoatRoughness: 0.1
+            });
+            
+            // Darker material for roof/stripes
+            const accentMat = new THREE.MeshStandardMaterial({
+                color: accentColor,
+                roughness: 0.5,
+                metalness: 0.8
+            });
+
+            const glassMat = new THREE.MeshPhysicalMaterial({
+                color: 0x111111,
+                metalness: 0.9,
+                roughness: 0.0,
+                transparent: true,
+                opacity: 0.75 // Slightly more transparent
+            });
+
+            const carbonMat = new THREE.MeshStandardMaterial({
+                color: 0x111111,
+                roughness: 0.8
+            });
+
+            // Emissive materials for Glow
+            const tailLightMat = new THREE.MeshStandardMaterial({ 
+                color: 0x550000, // Dark red when unlit
+                emissive: 0xff0000, 
+                emissiveIntensity: 2.0 
+            });
+            
+            const headLightMat = new THREE.MeshStandardMaterial({ 
+                color: 0xffffee,
+                emissive: 0xffffee,
+                emissiveIntensity: 1.5
+            });
+
+            // 2. Car Body (Same shape, applying your fix)
+            const carShape = new THREE.Shape();
+            carShape.moveTo(-2.0, 0.15); 
+            carShape.lineTo(-1.8, 0.15); 
+            carShape.lineTo(-0.8, 0.35); 
+            carShape.lineTo(-0.6, 0.6);  
+            carShape.lineTo(0.0, 0.6);   
+            carShape.lineTo(0.8, 0.6);   
+            carShape.lineTo(1.6, 0.35);  
+            carShape.lineTo(2.0, 0.35);  
+            carShape.lineTo(2.0, 0.0);   
+            carShape.lineTo(1.8, -0.15); 
+            carShape.lineTo(-2.0, -0.15);
+            carShape.lineTo(-2.0, 0.15); 
+
+            const extrudeSettings = {
+                steps: 2,
+                depth: 1.4, 
+                bevelEnabled: true,
+                bevelThickness: 0.05,
+                bevelSize: 0.05,
+                bevelSegments: 3
+            };
+
+            const bodyGeo = new THREE.ExtrudeGeometry(carShape, extrudeSettings);
+            bodyGeo.center(); 
+            // USER FIX APPLIED HERE
+            bodyGeo.rotateY(Math.PI / 2); 
+            
+            const carBody = new THREE.Mesh(bodyGeo, paintMat);
+            carBody.castShadow = true;
+            carBody.receiveShadow = true;
+            // USER FIX APPLIED HERE
+            carBody.position.y = 0.3;
+
+            // 3. "Eye Candy": Two-tone details (Overlay method)
+            // A. Roof Panel (Sits on top)
+            // We create a box that roughly matches the cabin area
+            const roofGeo = new THREE.BoxGeometry(1.2, 0.02, 1.0);
+            const roofMesh = new THREE.Mesh(roofGeo, accentMat);
+            roofMesh.position.set(0, 0.6, 0); // Top of the car arch
+            // Tilt it slightly to match the aerodynamic line
+            roofMesh.rotation.x = 0.1; 
+
+            // B. Center Racing Stripe
+            const stripeGeo = new THREE.BoxGeometry(0.2, 0.01, 4.1);
+            const stripeMesh = new THREE.Mesh(stripeGeo, accentMat);
+            stripeMesh.position.set(0, 0.31, 0); // Just above the main body
+
+            // 4. Cockpit (Glass - Fixed Positioning)
+            const cabinShape = new THREE.Shape();
+            cabinShape.moveTo(-0.55, 0.4);
+            cabinShape.lineTo(-0.4, 0.55);
+            cabinShape.lineTo(0.7, 0.55);
+            cabinShape.lineTo(1.5, 0.4);
+            cabinShape.lineTo(-0.55, 0.4);
+            
+            const cabinGeo = new THREE.ExtrudeGeometry(cabinShape, {
+                depth: 1.25, // Slightly narrower than body depth (1.4)
+                bevelEnabled: true,
+                bevelThickness: 0.02,
+                bevelSize: 0.02,
+                bevelSegments: 2
+            });
+            cabinGeo.center();
+            cabinGeo.rotateY(Math.PI / 2); // Match body rotation
+
+            const cabinMesh = new THREE.Mesh(cabinGeo, glassMat);
+            // FIX: Position it higher up so it sits inside the "hole" of the body shape
+            cabinMesh.position.y = 0.65; 
+cabinMesh.position.z = -0.17;
+            cabinMesh.castShadow = true;
+
+            // 5. Fenders (Wheel Arches) - Painted Accent Color for style
+            const fenderGeo = new THREE.BoxGeometry(0.5, 0.35, 0.7);
+            const fenderMat = accentMat; // Make fenders dark carbon look
+            
+            const fFL = new THREE.Mesh(fenderGeo, fenderMat);
+            fFL.position.set(0.8, 0.1, 1.3);
+            
+            const fFR = new THREE.Mesh(fenderGeo, fenderMat);
+            fFR.position.set(-0.8, 0.1, 1.3);
+
+            const fenderRearGeo = new THREE.BoxGeometry(0.6, 0.4, 0.8);
+            const fRL = new THREE.Mesh(fenderRearGeo, fenderMat);
+            fRL.position.set(0.85, 0.1, -1.2);
+
+            const fRR = new THREE.Mesh(fenderRearGeo, fenderMat);
+            fRR.position.set(-0.85, 0.1, -1.2);
+
+            // 6. Rear Spoiler / Wing
+            const wingSupportGeo = new THREE.BoxGeometry(0.1, 0.3, 0.1);
+            const wingPlateGeo = new THREE.BoxGeometry(1.9, 0.05, 0.4);
+            
+            const wingGroup = new THREE.Group();
+            const wSL = new THREE.Mesh(wingSupportGeo, carbonMat); wSL.position.set(0.6, 0.15, 0);
+            const wSR = new THREE.Mesh(wingSupportGeo, carbonMat); wSR.position.set(-0.6, 0.15, 0);
+            const wP = new THREE.Mesh(wingPlateGeo, accentMat); wP.position.set(0, 0.3, 0.05); // Red wing element
+            
+            wingGroup.add(wSL, wSR, wP);
+            wingGroup.position.set(0, 0.45, -1.7); //revert
+            wingGroup.castShadow = true;
+
+            // 7. Lights (Meshes + Actual Light Sources)
+            // Headlights
+            const hlGeo = new THREE.BoxGeometry(0.3, 0.1, 0.05);
+            const hlL = new THREE.Mesh(hlGeo, headLightMat); hlL.position.set(0.6, 0.25, 1.95);
+            const hlR = new THREE.Mesh(hlGeo, headLightMat); hlR.position.set(-0.6, 0.25, 1.95);
+            
+            // Spotlights (The "Eye Candy" beams)
+            const spotLightL = new THREE.SpotLight(0xffffff, 10);
+            spotLightL.position.set(0.6, 0.2, 1.8);
+            spotLightL.target.position.set(0.6, 0.0, 10); // Aim forward
+            spotLightL.angle = 0.5;
+            spotLightL.penumbra = 0.3;
+            spotLightL.castShadow = true; // Headlights cast shadows!
+
+            const spotLightR = new THREE.SpotLight(0xffffff, 10);
+            spotLightR.position.set(-0.6, 0.2, 1.8);
+            spotLightR.target.position.set(-0.6, 0.0, 10);
+            spotLightR.angle = 0.5;
+            spotLightR.penumbra = 0.3;
+            spotLightR.castShadow = true;
+
+            // Taillights
+            const tlGeo = new THREE.BoxGeometry(1.4, 0.1, 0.05);
+            const tlMesh = new THREE.Mesh(tlGeo, tailLightMat);
+            tlMesh.position.set(0, 0.4, 1.95);
+
+            // Red glow for taillights (PointLight)
+            const tailLightGlow = new THREE.PointLight(0xff0000, 2, 5);
+            tailLightGlow.position.set(0, 0.4, 2.0);
+
+            // 8. Assembly
+            carMesh = new THREE.Group();
+            
+            carMesh.add(carBody);
+            //carMesh.add(roofMesh); // The accent roof
+            carMesh.add(stripeMesh); // The racing stripe
+            carMesh.add(cabinMesh);
+            carMesh.add(fFL, fFR, fRL, fRR);
+            carMesh.add(wingGroup);
+            carMesh.add(hlL, hlR, tlMesh);
+            
+            // Add the actual light sources to the car mesh so they move with it
+            carMesh.add(spotLightL);
+            carMesh.add(spotLightL.target); // Target must be added to scene or same parent to move correctly
+            carMesh.add(spotLightR);
+            carMesh.add(spotLightR.target);
+            carMesh.add(tailLightGlow);
+
+carLights.left = spotLightL;
+carLights.right = spotLightR;
+//carLights.tail = tailLightGlow;
+            
+            scene.add(carMesh);
+
+            // Wheels
+            const wGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 20);
+            wGeo.rotateZ(Math.PI/2);
+            const wMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+            
+            const offsets = [
+                {x: 0.9, z: 1.2}, {x: -0.9, z: 1.2}, 
+                {x: 0.9, z: -1.2}, {x: -0.9, z: -1.2}
+            ];
+
+            for(let i=0; i<4; i++) {
+                const w = new THREE.Mesh(wGeo, wMat);
+                w.position.set(offsets[i].x, -0.2, offsets[i].z); 
+                w.castShadow = true;
+                wheelMeshes.push(w);
+                scene.add(w); 
+            }
+        }
+
+        // --- COURSE GENERATION ---
+
+        function clearCones() {
+            cones.forEach(c => {
+                scene.remove(c.mesh);
+                physicsWorld.removeBody(c.body);
+            });
+            cones = [];
+        }
+
+        function createCone(x, z) {
+            const h = 0.7;
+            const r = 0.25;
+            const geo = new THREE.ConeGeometry(r, h, 16);
+            const mat = new THREE.MeshStandardMaterial({ color: 0xffaa00 });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(x, h/2, z);
+            mesh.castShadow = true;
+            scene.add(mesh);
+
+            const shape = new CANNON.Cylinder(r, r, h, 8);
+            const q = new CANNON.Quaternion();
+            q.setFromAxisAngle(new CANNON.Vec3(1,0,0), -Math.PI/2); 
+            
+            const body = new CANNON.Body({ mass: 1 }); 
+            body.addShape(shape, new CANNON.Vec3(0,0,0), q);
+            body.position.set(x, h/2, z);
+            body.linearDamping = 0.5;
+            body.angularDamping = 0.5;
+            physicsWorld.addBody(body);
+
+            cones.push({ mesh, body });
+        }
+
+        function placeLine(p1, p2, count) {
+            for(let i=1; i<=count; i++) {
+                const t = i/count;
+                const x = p1.x + (p2.x - p1.x) * t;
+                const z = p1.z + (p2.z - p1.z) * t;
+                
+                const dx = p2.x - p1.x;
+                const dz = p2.z - p1.z;
+                const len = Math.sqrt(dx*dx + dz*dz);
+                const nx = -dz / len; 
+                const nz = dx / len;  
+                
+                createCone(x + nx * (params.roadWidth/2), z + nz * (params.roadWidth/2));
+                createCone(x - nx * (params.roadWidth/2), z - nz * (params.roadWidth/2));
+            }
+        }
+
+        // Original Arc logic for U-Turn preset
+        function placeArc(center, radius, startAngle, endAngle, count) {
+            const diff = endAngle - startAngle;
+            const step = diff / count;
+
+            for(let i=1; i<=count; i++) {
+                const angle = startAngle + step * i;
+                
+                const rOut = radius + (params.roadWidth/2);
+                createCone(center.x + Math.cos(angle) * rOut, center.z + Math.sin(angle) * rOut);
+                
+                const rIn = radius - (params.roadWidth/2);
+                createCone(center.x + Math.cos(angle) * rIn, center.z + Math.sin(angle) * rIn);
+            }
+        }
+
+         // --- HELPER: Calculate Endpoints of a Checkered Line Mesh ---
+        function getLineEndpoints(mesh, width) {
+            // Extract position and rotation
+            const pos = mesh.position;
+            // Mesh is rotated X -90 deg. Y rotation is the heading.
+            // Quaternion logic: mesh.quaternion.
+            // We can use the object's local vectors to find "Left"
+            
+            // Local forward is +Z. Local Left is +X.
+            const localLeft = new THREE.Vector3(1, 0, 0);
+            localLeft.applyQuaternion(mesh.quaternion);
+            
+            const halfWidth = width / 2;
+            
+            const p1 = new THREE.Vector3().copy(pos).add(localLeft.clone().multiplyScalar(-halfWidth));
+            const p2 = new THREE.Vector3().copy(pos).add(localLeft.clone().multiplyScalar(halfWidth));
+            
+            return { p1, p2 };
+        }
+
+        function checkLineCrossing(carPos, prevPos, lineP1, lineP2, prevSideVal, roadWidth) {
+            // 1. Projection Check: Is car "between" the line ends (with some tolerance)?
+            const lineVec = new THREE.Vector3().subVectors(lineP2, lineP1);
+            const carToP1 = new THREE.Vector3().subVectors(carPos, lineP1);
+            const lineLenSq = lineVec.lengthSq();
+            const t = carToP1.dot(lineVec) / lineLenSq;
+            
+            // 2. Side Check (Cross Product)
+            // 2D Cross product of (LineVec) and (CarToP1) -> (x1*z2 - z1*x2) (ignoring Y)
+            // We can use Vector3.cross().y
+            const crossProd = new THREE.Vector3().crossVectors(lineVec, carToP1).y;
+            const currentSide = Math.sign(crossProd);
+
+            // Tolerance of 0.2 (20%) allows crossing slightly near edges
+            if (t < -0.2 || t > 1.2) return { crossed: false, newSide: currentSide };
+
+
+            
+            // Check for sign change (crossing)
+            // We also treat 0 (on the line) as a potential state change
+            if (prevSideVal !== 0 && currentSide !== 0 && Math.sign(prevSideVal) !== currentSide) {
+                return { crossed: true, newSide: currentSide };
+            }
+            
+            // If we were on the line (0) and now off it, we crossed. 
+            // Determine direction based on car movement relative to line normal? 
+            // Simplified: if prev was 0, and current != 0, we crossed.
+            if (prevSideVal === 0 && currentSide !== 0) {
+                return { crossed: true, newSide: currentSide };
+            }
+
+            return { crossed: false, newSide: currentSide };
+        }
+
+        function loadCourseFromParams() {
+            clearCones();
+            resetTimer();
+
+            if (params.coursePreset === 'Empty') {
+                // Just clean up, leave ground
+                startLineMesh.visible = false;
+                finishLineMesh.visible = false;
+                resetCarPhysics();
+                return;
+            }
+
+            startLineMesh.visible = true;
+            finishLineMesh.visible = true;
+
+            if (params.coursePreset === 'U-Turn') {
+                // U-Turn Geometry
+                const p1 = { x: 0, z: 0 };
+                const p2 = { x: 0, z: params.straightLength };
+                placeLine(p1, p2, 10);
+
+                const turnCenter = { x: params.turnRadius, z: params.straightLength };
+                const startAngle = Math.PI;
+                const endAngle = 0;
+                placeArc(turnCenter, params.turnRadius, startAngle, endAngle, 20);
+
+                const p3 = { x: params.turnRadius * 2, z: params.straightLength };
+                const p4 = { x: params.turnRadius * 2, z: params.straightLength - params.exitLength }; 
+                placeLine(p3, p4, 10);
+
+                // Set Start/Finish Visuals
+                startLineMesh.scale.set(params.roadWidth, 1, 2);
+                startLineMesh.position.set(0, 0.02, 0);
+                startLineMesh.rotation.set(-Math.PI/2, 0, 0);
+
+            
+            // Calculate Start Line Endpoints for Timer
+            const startEnds = getLineEndpoints(startLineMesh, params.roadWidth);
+            timerState.startP1.copy(startEnds.p1);
+            timerState.startP2.copy(startEnds.p2);
+
+
+                timerState.finishZ = p4.z;
+                timerState.finishX = p4.x;
+                
+                finishLineMesh.scale.set(params.roadWidth, 1, 2);
+                finishLineMesh.position.set(p4.x, 0.02, p4.z);
+                finishLineMesh.rotation.set(-Math.PI/2, 0, 0);
+
+            
+            // Calculate Finish Line Endpoints
+            const finishEnds = getLineEndpoints(finishLineMesh, params.roadWidth);
+            timerState.finishP1.copy(finishEnds.p1);
+            timerState.finishP2.copy(finishEnds.p2);
+
+                resetCarPhysics();
+            } 
+            else if (params.coursePreset === 'Custom') {
+                // Don't auto-load anything, wait for file upload
+                // But we need to reset the car to start position
+                startLineMesh.scale.set(params.roadWidth, 1, 2);
+                startLineMesh.position.set(0, 0.02, 0);
+                startLineMesh.rotation.set(-Math.PI/2, 0, 0);
+                
+                // Hide finish line until loaded
+                finishLineMesh.visible = false;
+                resetCarPhysics();
+            }
+        }
+
+        // --- PHYSICS ---
+
+        function initPhysicsWorld() {
+            physicsWorld = new CANNON.World();
+            physicsWorld.gravity.set(0, params.gravity, 0);
+            physicsWorld.broadphase = new CANNON.SAPBroadphase(physicsWorld);
+
+            const groundMat = new CANNON.Material('ground');
+            const wheelMat = new CANNON.Material('wheel');
+            const coneMat = new CANNON.Material('cone');
+            
+            const contact = new CANNON.ContactMaterial(wheelMat, groundMat, {
+                frictionSlip: params.frictionSlip, restitution: 0.0, contactEquationStiffness: 1000
+            });
+            physicsWorld.addContactMaterial(contact);
+
+            const coneContact = new CANNON.ContactMaterial(groundMat, coneMat, {
+                friction: 0.5, restitution: 0.5
+            });
+            physicsWorld.addContactMaterial(coneContact);
+
+            const groundBody = new CANNON.Body({ mass: 0, material: groundMat });
+            groundBody.addShape(new CANNON.Plane());
+            groundBody.quaternion.setFromEuler(-Math.PI/2, 0, 0);
+            physicsWorld.addBody(groundBody);
+
+            const shape = new CANNON.Box(new CANNON.Vec3(0.9, 0.3, 2));
+            chassisBody = new CANNON.Body({ mass: params.mass, material: wheelMat });
+            chassisBody.addShape(shape);
+            chassisBody.angularDamping = 0.5;
+
+            vehicle = new CANNON.RaycastVehicle({
+                chassisBody: chassisBody,
+                indexRightAxis: 0, indexUpAxis: 1, indexForwardAxis: 2
+            });
+
+            const wheelConfig = {
+                radius: 0.4,
+                directionLocal: new CANNON.Vec3(0, -1, 0),
+                suspensionStiffness: params.suspensionStiffness,
+                suspensionRestLength: params.suspensionRestLength,
+                frictionSlip: params.frictionSlip,
+                dampingRelaxation: 2.3,
+                dampingCompression: 4.4,
+                rollInfluence: params.rollInfluence,
+                axleLocal: new CANNON.Vec3(-1, 0, 0),
+                maxSuspensionForce: 100000,
+                maxSuspensionTravel: 0.3,
+                customSlidingRotationalSpeed: -30,
+                useCustomSlidingRotationalSpeed: true
+            };
+
+            vehicle.addWheel({ ...wheelConfig, chassisConnectionPointLocal: new CANNON.Vec3(0.8, -0.2, 1.2) });
+            vehicle.addWheel({ ...wheelConfig, chassisConnectionPointLocal: new CANNON.Vec3(-0.8, -0.2, 1.2) });
+            vehicle.addWheel({ ...wheelConfig, chassisConnectionPointLocal: new CANNON.Vec3(0.8, -0.2, -1.2) });
+            vehicle.addWheel({ ...wheelConfig, chassisConnectionPointLocal: new CANNON.Vec3(-0.8, -0.2, -1.2) });
+
+            vehicle.addToWorld(physicsWorld);
+        }
+
+        // --- GUI & CONTROL ---
+
+        function initGUI() {
+console.log("initGUI");
+            gui = new GUI({ title: 'Control Panel' });
+            
+            // Force Top-Left via CSS class injection in <style>
+            
+            const fCourse = gui.addFolder('Course Builder');
+            const myPreset = fCourse.add(params, 'coursePreset', ['U-Turn', 'Empty', 'Custom'])
+                .name('Preset')
+                .onChange((v) => {
+                    // Toggle Custom UI
+                    const customControls = document.getElementById('custom-track-controls');
+                    if (v === 'Custom') {
+                        customControls.style.display = 'block';
+                    } else {
+                        customControls.style.display = 'none';
+                    }
+updateUTurnVisibility();
+                    loadCourseFromParams();
+                });
+
+                fCourse.add(params, 'roadWidth', 3, 15).name('Road Width'); //.onChange(loadCourseFromParams), // still need this for custom
+            // Only show these for U-Turn
+            const uTurnControllers = [
+                fCourse.add(params, 'straightLength', 10, 100).name('Entry Straight'),//.onChange(loadCourseFromParams),
+                fCourse.add(params, 'turnRadius', 5, 50).name('Turn Radius'),//.onChange(loadCourseFromParams),
+                fCourse.add(params, 'exitLength', 10, 100).name('Exit Straight')//.onChange(loadCourseFromParams)
+            ];
+console.log(uTurnControllers);
+
+            // Helper to hide/show U-Turn params
+            const updateUTurnVisibility = () => {
+                const show = (params.coursePreset === 'U-Turn');
+                uTurnControllers.forEach(c => c.show(show));
+            };
+            // Store original onChange to chain visibility check
+            uTurnControllers.forEach(c => {
+                //const origOnChange = c.onChange;
+                c.onChange((v) => {
+                    updateUTurnVisibility();
+loadCourseFromParams();
+                    //origOnChange(v); // triggers loadCourseFromParams
+                });
+            });
+            // Initial check
+            //fCourse.add(params, 'coursePreset').onChange(updateUTurnVisibility);
+
+            // Custom Upload UI Injection
+            const customDiv = document.createElement('div');
+            customDiv.id = 'custom-track-controls';
+            customDiv.innerHTML = `
+                <div style="color:#aaa; font-size:0.8rem; margin-bottom:5px;">Upload JSON from Designer:</div>
+                <label class="upload-btn">
+                    Choose File
+                    <input type="file" id="json-upload" accept=".json">
+                </label>
+                <div id="file-name" style="color:#4a90e2; font-size:0.75rem; margin-top:4px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;"></div>
+            `;
+            // Append to the folder's container (lil-gui structure is a bit tricky, appending to body and positioning via CSS is safer for custom UI)
+            // Or just append to the GUI dom container manually if needed. 
+            // For simplicity in this single file, we use the HTML structure above.
+            // We need to append it to the GUI container to keep it together.
+            // Actually, let's just inject it into the 'fCourse' folder's dom element.
+            // Note: lil-gui creates a DOM structure.
+            //setTimeout(() => {
+                const folderChildren = fCourse.domElement.querySelector('.children');
+                folderChildren.appendChild(customDiv);
+window.addEventListener("DOMContentLoaded", (event) => {
+  console.log("page is loaded");
+console.log(document.getElementById('json-upload'));
+
+                // Update file name on select
+                document.getElementById('json-upload').addEventListener('change', function() {
+                    if(this.files && this.files.length > 0) {
+                        document.getElementById('file-name').textContent = this.files[0].name;
+                    }
+                });
+
+
+
+            // File Upload Handler
+
+  console.log("page is loaded 2");
+console.log(document.getElementById('json-upload'));
+            const fileInput = document.getElementById('json-upload');
+            fileInput.addEventListener('change', (e) => {
+
+console.log("Let's read");
+                const file = e.target.files[0];
+                if (!file) return;
+                
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const json = JSON.parse(event.target.result);
+                        if (Array.isArray(json)) {
+                            loadCustomTrackFromJSON(json);
+                        } else {
+                            alert("Invalid JSON format. Expected an array of segments.");
+                        }
+                    } catch (err) {
+                        alert("Error parsing JSON: " + err.message);
+                    }
+                };
+                reader.readAsText(file);
+            });
+
+
+});
+
+                
+
+            //}, 100);
+
+
+            const fEng = gui.addFolder('Engine & Drivetrain');
+            fEng.add(params, 'engineType', ['Electric', 'AT'])
+                .name('Engine Type')
+                .onChange(v => {
+                    document.getElementById('toggle-curve-btn').style.display = (v === 'AT') ? 'block' : 'none';
+                    if(v === 'Electric') params.maxEnginePower = 800;
+                    if(v === 'AT') params.maxEnginePower = 120;
+                    uiGear.style.display = (v === 'AT') ? 'block' : 'none';
+                    uiEngineStatus.innerText = v;
+                    resetCarPhysics();
+                });
+            fEng.add(params, 'mass', 50, 500).name('Car Mass (kg)').onChange(v => {
+                chassisBody.mass = v;
+                chassisBody.updateMassProperties();
+            });
+            fEng.add(params, 'maxEnginePower', 50, 1000)
+                .name('Power / Torque')
+                .onChange(v => {
+                    drawTorqueCurve();
+                });
+
+            // Curve Specific Params (Only meaningful for AT)
+            const fCurve = fEng.addFolder('Torque Curve Tuning (AT)');
+            fCurve.add(transmission, 'idleRPM', 800, 2000).name('Idle RPM').onChange(drawTorqueCurve);
+            fCurve.add(transmission, 'optimalRPM', 3000, 7000).name('Power Band (Optimal)').onChange(drawTorqueCurve);
+            fCurve.add(transmission, 'redline', 6000, 9000).name('Redline').onChange(drawTorqueCurve);
+            
+            const f2 = gui.addFolder('Suspension & Grip');
+            f2.add(params, 'suspensionStiffness', 10, 100).name('Spring Stiffness');
+            f2.add(params, 'frictionSlip', 0.1, 5.0).name('Tire Grip');
+            f2.add(params, 'rollInfluence', 0, 1).name('Anti-Roll');
+            f2.add(params, 'substeps', 1, 10).name('Solver Steps');
+            
+            const f3 = gui.addFolder('Camera & View');
+            f3.add(params, 'cameraMode', ['Driver', 'Chase', 'Orbit']).name('View Mode').onChange(v => {
+                controls.enabled = (v === 'Orbit');
+                if(v !== 'Orbit') controls.reset();
+            });
+            f3.add(params, 'resetPhysics').name('Hard Reset Car (R)');
+
+const f4 = gui.addFolder('Other');
+f4.add(params, 'isNight').onChange(setNightTime);
+        }
+
+        function handleKey(e, down) {
+            const k = e.key.toLowerCase();
+            if (k === ' ') e.preventDefault();
+            
+            if (k === 'w' || k === 'arrowup') inputs.w = down;
+            if (k === 'a' || k === 'arrowleft') inputs.a = down;
+            if (k === 's' || k === 'arrowdown') inputs.s = down;
+            if (k === 'd' || k === 'arrowright') inputs.d = down;
+            if (k === ' ') inputs.space = down;
+            if (down && k === 'r') resetCarPhysics();
+        }
+
+        function resetCarPhysics() {
+            chassisBody.position.set(0, 2.0, 0);
+            chassisBody.quaternion.set(0,0,0,1);
+            chassisBody.velocity.set(0,0,0);
+            chassisBody.angularVelocity.set(0,0,0);
+            
+            transmission.gear = 1;
+            transmission.rpm = transmission.idleRPM;
+            transmission.smoothedVelocity = 0;
+
+            
+            // Reset Line Crossing State
+            // Calculate initial side based on car position at spawn
+            const initStart = checkLineCrossing(chassisBody.position, chassisBody.position, timerState.startP1, timerState.startP2, 0, params.roadWidth);
+            timerState.prevSideStart = initStart.newSide;
+            const initFinish = checkLineCrossing(chassisBody.position, chassisBody.position, timerState.finishP1, timerState.finishP2, 0, params.roadWidth);
+            timerState.prevSideFinish = initFinish.newSide;
+            
+            resetTimer();
+        }
+
+        // --- GAMEPLAY LOGIC ---
+
+        function formatTime(ms) {
+            const m = Math.floor(ms / 60000);
+            const s = Math.floor((ms % 60000) / 1000);
+            const cs = Math.floor((ms % 1000) / 10);
+            return `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}.${cs.toString().padStart(2,'0')}`;
+        }
+
+        function resetTimer() {
+            timerState.active = false;
+            timerState.startTime = 0;
+            uiTimer.innerText = "00:00.000";
+            uiTimer.style.color = "#fff";
+        }
+
+        function saveRecord(timeMs) {
+            timerState.records.push(timeMs);
+            timerState.records.sort((a,b) => a - b);
+            timerState.records = timerState.records.slice(0, 3);
+            localStorage.setItem('gold_master_records_v6', JSON.stringify(timerState.records));
+            renderRecords();
+        }
+        
+        function drawTorqueCurve() {
+            const canvas = document.getElementById('curve-canvas');
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width;
+            const h = canvas.height;
+
+            ctx.clearRect(0, 0, w, h);
+
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            for(let i=0; i<5; i++) {
+                const y = i * (h/4);
+                ctx.moveTo(0, y); ctx.lineTo(w, y);
+            }
+            ctx.stroke();
+
+            ctx.strokeStyle = '#00ffcc';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+
+            const maxRpmDisplay = 8000;
+            const maxTorqueDisplay = params.maxEnginePower * 1.5;
+
+            const getX = (rpm) => (rpm / maxRpmDisplay) * w;
+            const getY = (torque) => h - (torque / maxTorqueDisplay) * h;
+
+            for (let r = 0; r <= maxRpmDisplay; r += 100) {
+                let diff = r - transmission.optimalRPM;
+                let range = transmission.optimalRPM - transmission.idleRPM;
+                
+                let tFactor = 1 - Math.pow((diff) / range, 2);
+                tFactor = Math.max(0, tFactor);
+                if (r > transmission.redline) tFactor *= 0.1;
+
+                const torque = params.maxEnginePower * tFactor;
+
+                if (r === 0) ctx.moveTo(getX(r), getY(torque));
+                else ctx.lineTo(getX(r), getY(torque));
+            }
+            ctx.stroke();
+
+            ctx.fillStyle = '#ffaa00';
+            ctx.beginPath();
+            let currentDiff = transmission.rpm - transmission.optimalRPM;
+            let currentRange = transmission.optimalRPM - transmission.idleRPM;
+            let currentFactor = 1 - Math.pow((currentDiff) / currentRange, 2);
+            currentFactor = Math.max(0, currentFactor);
+            if (transmission.rpm > transmission.redline) currentFactor *= 0.1;
+            let currentTorque = params.maxEnginePower * currentFactor;
+            
+            ctx.arc(getX(transmission.rpm), getY(currentTorque), 5, 0, Math.PI*2);
+            ctx.fill();
+        }
+
+
+        function loadRecords() {
+            const data = localStorage.getItem('gold_master_records_v6');
+            if (data) {
+                timerState.records = JSON.parse(data);
+                renderRecords();
+            }
+        }
+
+        function clearRecords() {
+            timerState.records = [];
+            localStorage.removeItem('gold_master_records_v6');
+            renderRecords();
+        }
+
+        function renderRecords() {
+            if (timerState.records.length === 0) {
+                uiRecords.innerHTML = "No records yet";
+            } else {
+                uiRecords.innerHTML = timerState.records
+                    .map((t, i) => `<div class="record">#${i+1}: <span>${formatTime(t)}</span></div>`)
+                    .join('');
+            }
+        }
+
+        function checkTimer(currPos) {
+/*            if (!timerState.active) {
+                if (prevCarPos.z <= 0 && currPos.z > 0) {
+                    timerState.active = true;
+                    timerState.startTime = performance.now();
+                    uiTimer.style.color = "#00ffcc";
+                }
+            } 
+            else {
+                const xDist = Math.abs(currPos.x - timerState.finishX);
+                const laneOk = xDist < (params.roadWidth * 0.8);
+                
+                if (prevCarPos.z >= timerState.finishZ && currPos.z < timerState.finishZ && laneOk) {
+                    const lapTime = performance.now() - timerState.startTime;
+                    uiTimer.innerText = formatTime(lapTime);
+                    uiTimer.style.color = "#ffcc00";
+                    timerState.active = false;
+                    saveRecord(lapTime);
+                } else {
+                    const now = performance.now();
+                    uiTimer.innerText = formatTime(now - timerState.startTime);
+                }
+            }*/
+
+
+
+            // Only check if we have valid geometry (not Empty mode)
+            if (finishLineMesh.visible) {
+                // 1. Check Start Line
+                if (!timerState.active) {
+                    const resStart = checkLineCrossing(
+                        currPos, prevCarPos, 
+                        timerState.startP1, timerState.startP2, 
+                        timerState.prevSideStart, params.roadWidth
+                    );
+                    timerState.prevSideStart = resStart.newSide;
+                    
+                    if (resStart.crossed) {
+                        timerState.active = true;
+                        timerState.startTime = performance.now();
+                        uiTimer.style.color = "#00ffcc";
+                    }
+                } 
+                // 2. Check Finish Line
+                else {
+                    const resFinish = checkLineCrossing(
+                        currPos, prevCarPos,
+                        timerState.finishP1, timerState.finishP2,
+                        timerState.prevSideFinish, params.roadWidth
+                    );
+                    timerState.prevSideFinish = resFinish.newSide;
+timerState.prevSideStart = resFinish.newSide; //prevent immediate restart
+const recheck = checkLineCrossing(
+                        currPos, prevCarPos, 
+                        timerState.startP1, timerState.startP2, 
+                        timerState.prevSideStart, params.roadWidth
+                    );
+timerState.prevSideStart = recheck.newSide;
+
+                    if (resFinish.crossed) {
+                         const lapTime = performance.now() - timerState.startTime;
+                         uiTimer.innerText = formatTime(lapTime);
+                         uiTimer.style.color = "#ffcc00";
+                         timerState.active = false;
+                         saveRecord(lapTime);
+                     } else {
+                         const now = performance.now();
+                         uiTimer.innerText = formatTime(now - timerState.startTime);
+                     }
+                 }
+             }
+
+        }
+
+        function updatePhysics() {
+            if (isNaN(chassisBody.position.x)) {
+                resetCarPhysics();
+                return;
+            }
+
+            physicsWorld.step(1/60, 1/60, params.substeps);
+
+            // 1. Raycast down from the car's position
+            raycaster.set(chassisBody.position, downVector);
+
+            // Get all meshes that are tagged as 'road'
+            // (Assuming you have an array 'roadMeshes' or use scene.traverse)
+            // For simplicity in this snippet, let's assume you intersect against the whole scene
+            // and check the userData in the result.
+            const intersects = raycaster.intersectObjects(scene.children);
+
+            let onRoad = false;
+
+            // 2. Check if we hit the road mesh
+            // We look for the first object that is tagged as a road
+            for (let i = 0; i < intersects.length; i++) {
+                if (intersects[i].object.userData.isRoad) {
+                    onRoad = true;
+                    break;
+                }
+            }
+
+            // 3. Apply Damping based on surface
+            if (onRoad) {
+                chassisBody.linearDamping = ROAD_DAMPING;
+                chassisBody.angularDamping = ROAD_ANGULAR_DAMPING;
+            } else {
+                // We are on the "Base Ground" (Grass/Mud)
+                chassisBody.linearDamping = GRASS_DAMPING;
+                chassisBody.angularDamping = GRASS_ANGULAR_DAMPING;
+            }//test
+
+            // Steering
+            let steering = 0;
+            if (inputs.a) steering = params.maxSteer;
+            if (inputs.d) steering = -params.maxSteer;
+            vehicle.setSteeringValue(steering, 0);
+            vehicle.setSteeringValue(steering, 1);
+
+            // Engine Force Calculation
+            let engineForce = 0;
+
+let isReverse = (chassisBody.velocity.dot(chassisBody.quaternion.vmult(new CANNON.Vec3(0,0,1))) * 3.6 < 2.0);
+
+            if (params.engineType === 'Electric') {
+                if (inputs.w) engineForce = -params.maxEnginePower;
+                if (inputs.s) engineForce = params.maxEnginePower * 0.3; //0.3
+            } else {
+                // AT (Internal Combustion) Logic
+                const v = Math.abs(chassisBody.velocity.dot(chassisBody.quaternion.vmult(new CANNON.Vec3(0,0,1)))); 
+
+                transmission.smoothedVelocity += (v - transmission.smoothedVelocity) * 0.1;
+                const safeV = transmission.smoothedVelocity;
+
+                const wheelRpm = (safeV / (2 * Math.PI * 0.4)) * 60;
+                
+                const gearRatio = transmission.gearRatios[transmission.gear - 1];
+                
+                let targetRpm = Math.max(transmission.idleRPM, wheelRpm * gearRatio * transmission.finalDrive);
+                if (inputs.w && safeV < 5.0) targetRpm = 5500*0.7; 
+                transmission.rpm += (targetRpm - transmission.rpm) * 0.1; 
+
+                // 3. Auto Shift Logic
+                if (transmission.rpm > transmission.redline && transmission.gear < 5) {
+                    transmission.gear++;
+                } 
+                else if (transmission.rpm < 2500 && transmission.gear > 1 && !inputs.s) {
+                    transmission.gear--;
+                }
+
+                // 4. Calculate Torque
+                let diff = transmission.rpm - transmission.optimalRPM;
+                let range = transmission.optimalRPM - transmission.idleRPM;
+                
+                let torqueFactor = 1 - Math.pow((diff) / range, 2);
+                torqueFactor = Math.max(0.1, torqueFactor); 
+
+                if (transmission.rpm > transmission.redline) {
+                    torqueFactor *= 0.1; 
+                }
+
+                const maxTorque = 120; 
+                let currentTorque = maxTorque * torqueFactor;
+
+                let clutchEngagement = 1.0;
+                if (safeV < 3.0) clutchEngagement = safeV / 3.0; 
+                if (safeV < 0.5 && inputs.w) clutchEngagement = 0.3; 
+
+                currentTorque *= clutchEngagement;
+
+                if (inputs.s) currentTorque = -50;
+                if (inputs.space) currentTorque = 0;
+
+                const force = (currentTorque * (params.maxEnginePower / 120)) * gearRatio  / 0.4; 
+                
+                if (document.getElementById('curve-panel').style.display === 'block') {
+                    drawTorqueCurve();
+                }
+
+                if (inputs.w) engineForce = -force;
+                if (inputs.s) engineForce = force; //test
+
+                uiGear.innerText = `Gear: ${transmission.gear}, F=${Math.ceil(force)}`;
+            }
+
+if (isReverse && inputs.s) {
+engineForce = params.maxEnginePower * 0.5;
+if (params.engineType !== 'Electric') {
+engineForce = engineForce * 5;
+}
+}
+
+            // Apply Force to Rear Wheels
+            vehicle.applyEngineForce(engineForce, 2);
+            vehicle.applyEngineForce(engineForce, 3);
+
+            // Brakes
+            for(let i=0; i<4; i++) vehicle.setBrake(0, i);
+            if (inputs.s && !inputs.w && !isReverse) {
+                vehicle.setBrake(params.brakeForce, 0);
+                vehicle.setBrake(params.brakeForce, 1);
+                vehicle.setBrake(params.brakeForce, 2);
+                vehicle.setBrake(params.brakeForce, 3);
+            }
+            if (inputs.space) {
+                vehicle.setBrake(params.brakeForce * 3, 2);
+                vehicle.setBrake(params.brakeForce * 3, 3);
+            }
+//TODO: chassisBody.velocity.length() * 3.6
+
+
+            // Sync Visuals
+            carMesh.position.copy(chassisBody.position);
+            carMesh.quaternion.copy(chassisBody.quaternion);
+
+            for (let i = 0; i < vehicle.wheelInfos.length; i++) {
+                vehicle.updateWheelTransform(i);
+                const t = vehicle.wheelInfos[i].worldTransform;
+                wheelMeshes[i].position.copy(t.position);
+                wheelMeshes[i].quaternion.copy(t.quaternion);
+            }
+
+            cones.forEach(c => {
+                c.mesh.position.copy(c.body.position);
+                c.mesh.quaternion.copy(c.body.quaternion);
+            });
+
+            // UI Updates
+            const speedKmh = Math.round(chassisBody.velocity.length() * 3.6);
+            //uiSpeed.innerText = `${speedKmh} (${chassisBody.velocity.dot(chassisBody.quaternion.vmult(new CANNON.Vec3(0,0,1)))})`;
+uiSpeed.innerText = speedKmh;
+
+            // Only check timer if we have a finish line set (not Empty mode before load)
+            if (finishLineMesh.visible) {
+                checkTimer(carMesh.position);
+            }
+            prevCarPos.copy(carMesh.position);
+        }
+
+        function updateCamera() {
+            controls.update();
+
+            if (params.cameraMode === 'Orbit') {
+                controls.target.copy(carMesh.position);
+                return;
+            }
+
+            const carPos = carMesh.position.clone();
+            const carQuat = carMesh.quaternion.clone();
+            
+            const forward = new THREE.Vector3(0, 0, 1);
+            forward.applyQuaternion(carQuat);
+            forward.y = 0; 
+            forward.normalize();
+            
+            const carAngle = Math.atan2(forward.x, forward.z);
+
+            if (params.cameraMode === 'Driver') {
+                const dist = -0.7; //1.2
+                const height = 0.75;//0.7
+                
+                const offsetX = -Math.sin(carAngle) * dist;
+                const offsetZ = -Math.cos(carAngle) * dist;
+
+                camera.position.set(
+                    carPos.x + offsetX,
+                    carPos.y + height,
+                    carPos.z + offsetZ
+                );
+                
+                const lookTarget = carPos.clone().add(forward.multiplyScalar(10)); 
+                camera.lookAt(lookTarget);
+
+            } else if (params.cameraMode === 'Chase') {
+                const dist = 12;
+                const height = 6;
+                
+                const offsetX = -Math.sin(carAngle) * dist;
+                const offsetZ = -Math.cos(carAngle) * dist;
+
+                camera.position.x += (carPos.x + offsetX - camera.position.x) * 0.1;
+                camera.position.z += (carPos.z + offsetZ - camera.position.z) * 0.1;
+                camera.position.y += (carPos.y + height - camera.position.y) * 0.1;
+
+                camera.lookAt(carPos);
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            updatePhysics();
+            updateCamera();
+            renderer.render(scene, camera);
+        }
+
+        function onResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Initialize immediately
+        init();
+    </script>
+</body>
+</html>
