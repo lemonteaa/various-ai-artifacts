@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Babylon.js Diagnostic Fix</title>
+    <style>
+        html, body { overflow: hidden; width: 100%; height: 100%; margin: 0; padding: 0; font-family: monospace; background: #000; }
+        #renderCanvas { width: 100%; height: 100%; touch-action: none; outline: none; }
+        
+        /* Top Left Controls */
+        #ui-layer {
+            position: absolute; top: 20px; left: 20px; color: #fff;
+            background: rgba(0, 0, 0, 0.85); padding: 15px; border-radius: 4px;
+            pointer-events: none; border: 1px solid #555;
+        }
+        
+        /* Top Right Diagnostics (NEW) */
+        #diagnostics {
+            position: absolute; top: 20px; right: 20px; color: #0f0;
+            background: rgba(0, 0, 0, 0.85); padding: 15px; border-radius: 4px;
+            pointer-events: none; border: 1px solid #0f0; width: 250px;
+            font-size: 12px;
+        }
+        .diag-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .val { color: #fff; font-weight: bold; }
+
+        /* Bottom Buttons */
+        #controls {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 10px; pointer-events: auto;
+        }
+        button {
+            background: #333; color: white; border: 1px solid #666;
+            padding: 10px 20px; cursor: pointer; font-size: 14px;
+        }
+        button:hover { background: #444; }
+        button.active { background: #00d2ff; color: #000; border-color: #00d2ff; font-weight: bold; }
+
+        #loading {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #111; color: #fff; display: flex;
+            justify-content: center; align-items: center; z-index: 999; font-size: 24px;
+        }
+    </style>
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+</head>
+<body>
+
+    <div id="loading">Initializing...</div>
+
+    <div id="ui-layer">
+        <div><strong>Controls:</strong></div>
+        <div style="margin-left: 10px;">WASD / Arrows to Move</div>
+        <div style="margin-left: 10px;">Mouse Drag to Look</div>
+        <div style="margin-left: 10px;">Wheel to Zoom</div>
+        <div id="status" style="margin-top:5px; color:#aaa;">Status: OK</div>
+    </div>
+
+    <!-- NEW: Diagnostic Panel -->
+    <div id="diagnostics">
+        <div style="border-bottom: 1px solid #0f0; margin-bottom: 5px; padding-bottom:2px;">SYSTEM DIAGNOSTICS</div>
+        <div class="diag-row"><span>Mode:</span> <span id="diag-mode" class="val">TPV</span></div>
+        <div class="diag-row"><span>Inputs:</span> <span id="diag-inputs" class="val">None</span></div>
+        <div class="diag-row"><span>Position X:</span> <span id="diag-pos-x" class="val">0.00</span></div>
+        <div class="diag-row"><span>Position Z:</span> <span id="diag-pos-z" class="val">0.00</span></div>
+        <div class="diag-row"><span>Move Vec X:</span> <span id="diag-vec-x" class="val">0.00</span></div>
+        <div class="diag-row"><span>Move Vec Z:</span> <span id="diag-vec-z" class="val">0.00</span></div>
+    </div>
+
+    <div id="controls">
+        <button id="btn-tpv" class="active">Third Person</button>
+        <button id="btn-fpv">First Person</button>
+    </div>
+
+    <canvas id="renderCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById("renderCanvas");
+        const engine = new BABYLON.Engine(canvas, true);
+        
+        // Diagnostic Elements
+        const uiMode = document.getElementById("diag-mode");
+        const uiInputs = document.getElementById("diag-inputs");
+        const uiPosX = document.getElementById("diag-pos-x");
+        const uiPosZ = document.getElementById("diag-pos-z");
+        const uiVecX = document.getElementById("diag-vec-x");
+        const uiVecZ = document.getElementById("diag-vec-z");
+        const statusEl = document.getElementById("status");
+
+        // --- 1. ROBUST INPUT HANDLING ---
+        const inputMap = {};
+        window.addEventListener("keydown", (evt) => {
+            inputMap[evt.code] = true;
+            inputMap[evt.key.toLowerCase()] = true;
+        });
+        window.addEventListener("keyup", (evt) => {
+            inputMap[evt.code] = false;
+            inputMap[evt.key.toLowerCase()] = false;
+        });
+
+        const createScene = function () {
+            const scene = new BABYLON.Scene(engine);
+            scene.clearColor = new BABYLON.Color3(0.05, 0.05, 0.08); // Slightly darker for contrast
+
+            // Lighting
+            const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+            light.intensity = 1.0;
+
+            // --- 2. VISUAL ENVIRONMENT ---
+            const createGridTexture = (name) => {
+                const texture = new BABYLON.DynamicTexture(name, 512, scene);
+                const ctx = texture.getContext();
+                ctx.fillStyle = "#222"; // Dark grey grid background
+                ctx.fillRect(0, 0, 512, 512);
+                ctx.strokeStyle = "#444444"; // lighter gray color for ground
+                ctx.lineWidth = 2;
+                const step = 64;
+                for(let i=0; i<=512; i+=step) {
+                    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 512); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(512, i); ctx.stroke();
+                }
+                texture.update();
+                return texture;
+            };
+
+            const ground = BABYLON.MeshBuilder.CreateGround("ground", {width: 100, height: 100}, scene);
+            const groundMat = new BABYLON.StandardMaterial("gMat", scene);
+            groundMat.diffuseTexture = createGridTexture("gridTex");
+            groundMat.diffuseTexture.uScale = 5;
+            groundMat.diffuseTexture.vScale = 5;
+            ground.material = groundMat;
+
+            // Decorations (Neon Trees)
+            for(let i=0; i<20; i++) {
+                const x = (Math.random() * 60) - 30;
+                const z = (Math.random() * 60) - 30;
+                if(Math.abs(x) > 2 || Math.abs(z) > 2) {
+                    const cone = BABYLON.MeshBuilder.CreateCylinder("tree", {diameterTop: 0, diameterBottom: 2, height: 4, tessellation: 6}, scene);
+                    cone.position.set(x, 2, z);
+                    const mat = new BABYLON.StandardMaterial("treeMat", scene);
+                    mat.emissiveColor = new BABYLON.Color3(0, 1, 0); // Glow
+                    cone.material = mat;
+                }
+            }
+
+            // --- 3. PLAYER SETUP ---
+            const playerRoot = new BABYLON.TransformNode("playerRoot");
+            playerRoot.position.y = 1; 
+
+            const playerMesh = BABYLON.MeshBuilder.CreateCapsule("body", {radius: 0.4, height: 1.8}, scene);
+            playerMesh.parent = playerRoot;
+            const pMat = new BABYLON.StandardMaterial("pMat", scene);
+            pMat.diffuseColor = BABYLON.Color3.Teal();
+            playerMesh.material = pMat;
+
+            // Axes
+            function createLocalAxes(parentMesh, size = 1) {
+                const xAxis = BABYLON.MeshBuilder.CreateCylinder("xAxis", {height: size, diameter: 0.05}, scene);
+                xAxis.rotation.z = Math.PI / 2; xAxis.parent = parentMesh;
+                xAxis.material = new BABYLON.StandardMaterial("matX", scene);
+                xAxis.material.diffuseColor = xAxis.material.emissiveColor = BABYLON.Color3.Red();
+                xAxis.material.disableLighting = true;
+                const yAxis = BABYLON.MeshBuilder.CreateCylinder("yAxis", {height: size, diameter: 0.05}, scene);
+                yAxis.parent = parentMesh;
+                yAxis.material = new BABYLON.StandardMaterial("matY", scene);
+                yAxis.material.diffuseColor = yAxis.material.emissiveColor = BABYLON.Color3.Green();
+                yAxis.material.disableLighting = true;
+                const zAxis = BABYLON.MeshBuilder.CreateCylinder("zAxis", {height: size, diameter: 0.05}, scene);
+                zAxis.rotation.x = Math.PI / 2; zAxis.parent = parentMesh;
+                zAxis.material = new BABYLON.StandardMaterial("matZ", scene);
+                zAxis.material.diffuseColor = zAxis.material.emissiveColor = BABYLON.Color3.Blue();
+                zAxis.material.disableLighting = true;
+            }
+            createLocalAxes(playerRoot, 4);
+
+            // --- 4. CAMERAS ---
+            // FIX: Pass the 'playerRoot' Node directly, NOT 'playerRoot.position'.
+            // Passing the Vector3 creates a shared reference where the camera resets the position to maintain its view center.
+            const cameraTPV = new BABYLON.ArcRotateCamera("camTPV", -Math.PI / 2, Math.PI / 2.5, 10, playerRoot, scene);
+            cameraTPV.lowerRadiusLimit = 2;
+            cameraTPV.upperRadiusLimit = 20;
+            cameraTPV.wheelPrecision = 50;
+            
+            if(cameraTPV.inputs.attached.keyboard) {
+                cameraTPV.inputs.remove(cameraTPV.inputs.attached.keyboard);
+            }
+            cameraTPV.attachControl(canvas, true);
+
+            const cameraFPV = new BABYLON.UniversalCamera("camFPV", new BABYLON.Vector3(0, 0.6, 0), scene);
+            cameraFPV.parent = playerRoot;
+            cameraFPV.minZ = 0.1;
+            if(cameraFPV.inputs.attached.keyboard) {
+                cameraFPV.inputs.remove(cameraFPV.inputs.attached.keyboard);
+            }
+            cameraFPV.attachControl(canvas, true);
+
+            scene.activeCamera = cameraTPV;
+
+            // --- 5. MOVEMENT LOGIC (ROBUST) ---
+            let speed = 0.2;
+            let currentMoveVec = BABYLON.Vector3.Zero();
+
+            scene.onBeforeRenderObservable.add(() => {
+                try {
+                    // 1. Read Inputs
+                    let forwardInput = 0;
+                    let rightInput = 0;
+
+                    if (inputMap["KeyW"] || inputMap["w"] || inputMap["ArrowUp"]) forwardInput = 1;
+                    if (inputMap["KeyS"] || inputMap["s"] || inputMap["ArrowDown"]) forwardInput = -1;
+                    if (inputMap["KeyD"] || inputMap["d"] || inputMap["ArrowRight"]) rightInput = 1;
+                    if (inputMap["KeyA"] || inputMap["a"] || inputMap["ArrowLeft"]) rightInput = -1;
+
+                    // Update UI Inputs
+                    const activeInputs = [];
+                    if(forwardInput === 1) activeInputs.push("W");
+                    if(forwardInput === -1) activeInputs.push("S");
+                    if(rightInput === 1) activeInputs.push("D");
+                    if(rightInput === -1) activeInputs.push("A");
+                    uiInputs.innerText = activeInputs.length > 0 ? activeInputs.join("+") : "None";
+
+                    // 2. Calculate Displacement
+                    currentMoveVec.set(0,0,0);
+
+                    if (forwardInput !== 0 || rightInput !== 0) {
+                        
+                        if (scene.activeCamera === cameraTPV) {
+                            uiMode.innerText = "TPV";
+                            
+                            // ROBUST TPV MATH:
+                            // Instead of calculating Sin/Cos manually, we ask the camera: 
+                            // "Which way are you looking?" (Camera Position -> Target Position)
+                            const camPos = cameraTPV.position;
+                            const targetPos = cameraTPV.getTarget();
+                            
+                            // Vector from Camera to Target (Into the screen)
+                            let camForward = targetPos.subtract(camPos);
+                            camForward.y = 0; // Flatten to XZ plane
+                            
+                            if (camForward.length() === 0) {
+                                camForward = new BABYLON.Vector3(0, 0, -1); // Fallback
+                            } else {
+                                camForward.normalize();
+                            }
+
+                            // Right Vector (Perpendicular to Forward on XZ plane)
+                            const camRight = BABYLON.Vector3.Cross(BABYLON.Axis.Y, camForward).normalize();
+
+                            // Combine
+                            const moveDir = camForward.scale(forwardInput).add(camRight.scale(rightInput));
+                            if(moveDir.length() > 0) moveDir.normalize();
+
+                            // Apply to current Move Vector for diagnostics
+                            currentMoveVec.copyFrom(moveDir.scale(speed));
+
+                            // --- CRITICAL MOVEMENT APPLICATION ---
+//console.log("before");
+//console.log(playerRoot.position);
+                            playerRoot.position.addInPlace(currentMoveVec);
+//console.log("after");
+//console.log(playerRoot.position);
+                            
+                            // Rotate Body
+                            // If moving diagonally, we look at the movement direction
+                            if (currentMoveVec.length() > 0) {
+                                const lookTarget = playerRoot.position.clone().add(currentMoveVec);
+                                playerRoot.lookAt(lookTarget);
+                            }
+                            
+                            // Keep Camera Locked
+                            //cameraTPV.setTarget(playerRoot);
+                            // Note: cameraTPV automatically tracks 'playerRoot' because we passed the node to the constructor.
+                            // We do not need to manually call setTarget every frame.
+
+                        } else {
+                            // --- FPV LOGIC ---
+                            uiMode.innerText = "FPV";
+
+                            // Sync Body to Head
+                            playerRoot.rotation.y = cameraFPV.rotation.y;
+
+                            // Move relative to rotation
+                            let fVec = new BABYLON.Vector3(0, 0, 1);
+                            let rVec = new BABYLON.Vector3(1, 0, 0);
+                            const rotMat = BABYLON.Matrix.RotationY(playerRoot.rotation.y);
+                            fVec = BABYLON.Vector3.TransformCoordinates(fVec, rotMat);
+                            rVec = BABYLON.Vector3.TransformCoordinates(rVec, rotMat);
+
+                            const moveDir = fVec.scale(forwardInput).add(rVec.scale(rightInput));
+                            if(moveDir.length() > 0) moveDir.normalize();
+                            
+                            currentMoveVec.copyFrom(moveDir.scale(speed));
+                            
+                            playerRoot.position.addInPlace(currentMoveVec);
+                        }
+                    }
+
+                    // 3. Update UI Diagnostics (Position)
+                    // Round to 2 decimals
+                    const px = playerRoot.position.x;
+                    const pz = playerRoot.position.z;
+                    uiPosX.innerText = px.toFixed(2);
+                    uiPosZ.innerText = pz.toFixed(2);
+                    uiVecX.innerText = currentMoveVec.x.toFixed(4);
+                    uiVecZ.innerText = currentMoveVec.z.toFixed(4);
+
+                    statusEl.innerText = "Status: Running";
+                    statusEl.className = "ok";
+
+                } catch (e) {
+                    console.error(e);
+                    statusEl.innerText = "Error: " + e.message;
+                    statusEl.className = "err";
+                }
+            });
+
+            // --- 6. CAMERA SWITCHING ---
+            const btnTPV = document.getElementById("btn-tpv");
+            const btnFPV = document.getElementById("btn-fpv");
+
+            window.switchToTPV = function() {
+                if(scene.activeCamera === cameraTPV) return;
+                
+                scene.activeCamera = cameraTPV;
+                cameraTPV.attachControl(canvas, true);
+                
+                // Sync camera to player back
+                cameraTPV.alpha = playerRoot.rotation.y + Math.PI;
+                cameraTPV.beta = Math.PI / 3;
+                cameraTPV.radius = 8;
+
+                btnTPV.classList.add('active');
+                btnFPV.classList.remove('active');
+            };
+
+            window.switchToFPV = function() {
+                if(scene.activeCamera === cameraFPV) return;
+
+                cameraTPV.detachControl();
+                scene.activeCamera = cameraFPV;
+                cameraFPV.attachControl(canvas, true);
+
+                playerRoot.rotation.y = cameraTPV.alpha + Math.PI;
+                cameraFPV.rotation.y = playerRoot.rotation.y;
+                cameraFPV.rotation.x = 0;
+
+                btnFPV.classList.add('active');
+                btnTPV.classList.remove('active');
+            };
+
+            btnTPV.addEventListener('click', window.switchToTPV);
+            btnFPV.addEventListener('click', window.switchToFPV);
+
+            // FPV FOV Zoom
+            canvas.addEventListener("wheel", (evt) => {
+                if(scene.activeCamera === cameraFPV) {
+                    evt.preventDefault();
+                    const delta = evt.deltaY * 0.001;
+                    cameraFPV.fov = Math.max(0.5, Math.min(1.5, cameraFPV.fov + delta));
+                }
+            }, { passive: false });
+
+            return scene;
+        };
+
+        const scene = createScene();
+        window.addEventListener("resize", () => engine.resize());
+        engine.runRenderLoop(() => scene.render());
+        document.getElementById("loading").style.display = "none";
+
+    </script>
+</body>
+</html>
