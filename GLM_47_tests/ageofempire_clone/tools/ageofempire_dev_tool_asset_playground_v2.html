@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Asset Generator: AoE Clone (Buildings & Units)</title>
+    <!-- Import Three.js from CDN -->
+    <!--<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>-->
+    <!--<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>-->
+    
+    <style>
+        :root {
+            --bg-color: #1a1a1a;
+            --panel-bg: #2d2d2d;
+            --text-color: #e0e0e0;
+            --accent-color: #4CAF50;
+            --input-bg: #3d3d3d;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            overflow: hidden;
+            display: flex;
+            height: 100vh;
+        }
+
+        /* 3D Viewport */
+        #canvas-container {
+            flex-grow: 1;
+            position: relative;
+            background: linear-gradient(to top, #383838, #1a1a1a);
+            box-shadow: inset -5px 0 10px rgba(0,0,0,0.5);
+        }
+
+        /* Control Panel */
+        #controls {
+            width: 340px;
+            background-color: var(--panel-bg);
+            padding: 20px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            overflow-y: auto;
+            border-left: 1px solid #444;
+            z-index: 10;
+        }
+
+        h1 { font-size: 1.2rem; margin: 0 0 10px 0; color: var(--accent-color); }
+        h2 { font-size: 1rem; margin: 15px 0 5px 0; border-bottom: 1px solid #555; padding-bottom: 5px; }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        label { font-size: 0.85rem; color: #aaa; }
+
+        select, input[type="color"], input[type="range"] {
+            background-color: var(--input-bg);
+            border: 1px solid #555;
+            color: white;
+            padding: 8px;
+            border-radius: 4px;
+            width: 100%;
+            box-sizing: border-box;
+            cursor: pointer;
+        }
+
+        select:focus, input:focus {
+            outline: 2px solid var(--accent-color);
+            border-color: transparent;
+        }
+
+        button {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+
+        button:hover { background-color: #45a049; }
+        button.secondary { background-color: #555; margin-top: 5px; }
+        button.secondary:hover { background-color: #666; }
+
+        .info-panel {
+            font-size: 0.8rem;
+            color: #888;
+            background: rgba(0,0,0,0.2);
+            padding: 10px;
+            border-radius: 4px;
+            line-height: 1.4;
+        }
+
+        #loading-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 1.5rem;
+            z-index: 100;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        /* Code Preview Snippet */
+        #code-preview {
+            font-family: monospace;
+            font-size: 0.7rem;
+            background: #000;
+            color: #0f0;
+            padding: 10px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            max-height: 100px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 3D Canvas Area -->
+    <div id="canvas-container">
+        <div id="loading-overlay">Loading Assets...</div>
+    </div>
+
+    <!-- Sidebar Controls -->
+    <aside id="controls">
+        <h1>Asset Generator</h1>
+        <div class="info-panel">
+            Procedural 3D assets for AoE clone. Includes Buildings and Units.
+        </div>
+
+        <h2>Configuration</h2>
+        
+        <div class="control-group">
+            <label for="assetType">Asset Type</label>
+            <select id="assetType">
+                <optgroup label="Buildings">
+                    <option value="townCenter">Town Center</option>
+                    <option value="house">House</option>
+                    <option value="barracks">Barracks</option>
+                    <option value="market">Market</option>
+                    <option value="camp">Camp (Universal)</option>
+                    <option value="farm">Farm (Universal)</option>
+                    <option value="tower">Tower</option>
+                </optgroup>
+                <optgroup label="Units">
+                    <option value="swordsman">Swordsman</option>
+                    <option value="archer">Archer</option>
+                    <option value="cavalry">Cavalry</option>
+                    <option value="phalanx">Phalanx</option>
+                    <option value="catapult">Catapult</option>
+                </optgroup>
+                <optgroup label="Misc">
+                    <option value="flag">Flag</option>
+                </optgroup>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label for="civilization">Civilization</label>
+            <select id="civilization">
+                <option value="kingdom">Kingdom (Euro)</option>
+                <option value="empire">Empire (Asian)</option>
+                <option value="neutral" selected>Neutral (Universal)</option>
+            </select>
+            <small style="color:#666; font-size:0.7rem;">Units & Misc are usually Neutral style</small>
+        </div>
+
+        <div class="control-group">
+            <label for="themeColor">Theme Color (Player Team)</label>
+            <input type="color" id="themeColor" value="#3498db">
+        </div>
+
+        <div class="control-group">
+            <label for="scaleSlider">Uniform Scale: <span id="scaleVal">1.0</span></label>
+            <input type="range" id="scaleSlider" min="0.5" max="2.0" step="0.1" value="1.0">
+        </div>
+
+        <h2>Actions</h2>
+        <button id="btnGenerate">Regenerate Model</button>
+        <button id="btnTowerTest" class="secondary" style="display:none;">Test Tower Shot</button>
+
+        <h2>Dev Info</h2>
+        <div id="code-preview">// Function call preview will appear here...</div>
+    </aside>
+
+    <script type="importmap">
+        { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        /**
+         * ASSET GENERATION LOGIC
+         * Consolidated and Extended
+         */
+        const AssetFactory = (function() {
+            // --- 1. CONFIGURATION & CONSTANTS ---
+            const CONFIG = {
+                COLORS: {
+                    PLAYER: 0x4488ff,
+                    PLAYER_BUILDING: 0x3366cc,
+                    ENEMY: 0xff4444,
+                    ENEMY_BUILDING: 0xcc3333,
+                    GHOST: 0x00ff00,
+                    GROUND: 0x2e5a2e,
+                    FOUNDATION: 0x555555
+                }
+            };
+
+            // Reusable Materials
+            const mats = {
+                stone: new THREE.MeshLambertMaterial({ color: 0x888888 }),
+                stoneDark: new THREE.MeshLambertMaterial({ color: 0x555555 }),
+                wood: new THREE.MeshLambertMaterial({ color: 0x8B4513 }),
+                woodDark: new THREE.MeshLambertMaterial({ color: 0x5C4033 }),
+                crop: new THREE.MeshLambertMaterial({ color: 0x55aa55 }),
+                ground: new THREE.MeshLambertMaterial({ color: 0x5d4037 }),
+                plaster: new THREE.MeshLambertMaterial({ color: 0xf0f0e0 }), // Asian walls
+                roofDefault: new THREE.MeshLambertMaterial({ color: 0xcccccc }),
+                metal: new THREE.MeshLambertMaterial({ color: 0xaaaaaa }), // Swords/Armor
+                skin: new THREE.MeshLambertMaterial({ color: 0xffccaa }) // Hands/Face hints
+            };
+
+            // Helper to create theme material
+            const getThemeMat = (color) => new THREE.MeshLambertMaterial({ color: color });
+
+            // Helper: Override logic for Ghost/Preview modes
+            function overwriteMatPreset(mats, overrideMat) {
+                if (!overrideMat) return mats;
+                return {
+                    stone: overrideMat,
+                    stoneDark: overrideMat,
+                    wood: overrideMat,
+                    woodDark: overrideMat,
+                    crop: overrideMat,
+                    ground: overrideMat,
+                    plaster: overrideMat,
+                    roofDefault: overrideMat,
+                    metal: overrideMat,
+                    skin: overrideMat
+                };
+            }
+
+            // --- 2. GEOMETRY BUILDERS ---
+
+            // Helper: Create Box
+            function box(w, h, d, mat, x, y, z) {
+                const geo = new THREE.BoxGeometry(w, h, d);
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.set(x, y, z);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                return mesh;
+            }
+
+            // Helper: Create Cylinder/Pillar
+            function pillar(rt, rb, h, mat, x, y, z) {
+                const geo = new THREE.CylinderGeometry(rt, rb, h, 8);
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.set(x, y, z);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                return mesh;
+            }
+
+            // Helper: Create Roof (Pyramid style)
+            function roof(w, d, h, mat, x, y, z) {
+                // Using Cone with 4 radial segments creates a pyramid
+                const geo = new THREE.ConeGeometry(Math.max(w,d) * 0.75, h, 4);
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.set(x, y, z);
+                mesh.rotation.y = Math.PI / 4; // Align flat sides to axes
+                mesh.castShadow = true;
+                return mesh;
+            }
+
+            // --- 3. BUILDINGS ---
+
+            // 1. TOWN CENTER
+            function createTownCenter(civ, themeColor, overrideMat) {
+                const group = new THREE.Group();
+                const themeMat = overrideMat || getThemeMat(themeColor);
+                const mmats = overwriteMatPreset(mats, overrideMat);
+
+                if (civ === 'kingdom') {
+                    // Base
+                    group.add(box(8, 1, 8, mmats.stoneDark, 0, 0.5, 0));
+                    // Main Hall
+                    group.add(box(7, 5, 6, mmats.stone, 0, 3.5, 0));
+                    // Door
+                    group.add(box(2, 3, 0.2, mmats.woodDark, 0, 1.5, 3));
+                    // Roof
+                    const r = roof(8, 8, 4, themeMat, 0, 7, 0);
+                    group.add(r);
+                    // Tower
+                    group.add(box(2, 7, 2, mmats.stone, 2.5, 4.5, 0));
+                    const rt = roof(2.5, 2.5, 2, themeMat, 2.5, 8.5, 0);
+                    group.add(rt);
+                } else if (civ === 'empire') {
+                    // Raised Platform
+                    group.add(box(9, 0.5, 9, mmats.stoneDark, 0, 0.25, 0));
+                    // Main Body
+                    group.add(box(7, 4, 6, mmats.plaster, 0, 2.5, 0));
+                    // Pillars
+                    const pos = [-2.5, 2.5];
+                    pos.forEach(x => {
+                        pos.forEach(z => {
+                            group.add(pillar(0.3, 0.3, 4, mmats.woodDark, x, 2.5, z * 1.5));
+                        });
+                    });
+                    // Tiered Roof 1
+                    const r1 = roof(8, 7, 2, themeMat, 0, 5.5, 0);
+                    group.add(r1);
+                    // Top Tier
+                    group.add(box(3, 1.5, 3, mmats.plaster, 0, 6.75, 0));
+                    const r2 = roof(4, 4, 2, themeMat, 0, 8.5, 0);
+                    group.add(r2);
+                }
+                return group;
+            }
+
+            // 2. HOUSE
+            function createHouse(civ, themeColor, overrideMat) {
+                const group = new THREE.Group();
+                const themeMat = overrideMat || getThemeMat(themeColor);
+                const mmats = overwriteMatPreset(mats, overrideMat);
+
+                if (civ === 'kingdom') {
+                    group.add(box(4, 3, 4, mmats.stone, 0, 1.5, 0));
+                    group.add(box(1.2, 2, 0.2, mmats.woodDark, 0, 1, 2.01)); 
+                    group.add(roof(5, 5, 2.5, themeMat, 0, 3.75, 0));
+                } else if (civ === 'empire') {
+                    group.add(box(4, 2.5, 4, mmats.plaster, 0, 1.25, 0));
+                    group.add(roof(5, 5, 2, themeMat, 0, 2.75, 0));
+                }
+                return group;
+            }
+
+            // 3. BARRACKS
+            function createBarracks(civ, themeColor, overrideMat) {
+                const group = new THREE.Group();
+                const themeMat = overrideMat || getThemeMat(themeColor);
+                const mmats = overwriteMatPreset(mats, overrideMat);
+
+                if (civ === 'kingdom') {
+                    group.add(box(8, 3.5, 5, mmats.stone, 0, 1.75, 0));
+                    // Gate
+                    group.add(box(3, 2.5, 0.5, mmats.woodDark, 0, 1.25, 2.5));
+                    group.add(roof(9, 6, 3, themeMat, 0, 4.5, 0));
+                } else if (civ === 'empire') {
+                    group.add(box(8, 3, 5, mmats.plaster, 0, 1.5, 0));
+                    // Wide roof
+                    const r = roof(9, 6, 2, themeMat, 0, 3.5, 0);
+                    group.add(r);
+                    // Training posts in front
+                    for(let i=-2; i<=2; i+=2) {
+                        group.add(pillar(0.1, 0.1, 4, mmats.woodDark, i, 2, 3));
+                    }
+                }
+                return group;
+            }
+
+            // 4. MARKET (IMPROVED)
+            function createMarket(civ, themeColor, overrideMat) {
+                const group = new THREE.Group();
+                const themeMat = overrideMat || getThemeMat(themeColor);
+                const mmats = overwriteMatPreset(mats, overrideMat);
+
+                if (civ === 'kingdom') {
+                    // New Design: Single long hall with overhang
+                    group.add(box(6, 3, 4, mmats.stone, 0, 1.5, 0)); 
+                    // Internal dividers
+                    group.add(box(0.2, 2.5, 3, mmats.woodDark, -2, 1.25, 0));
+                    group.add(box(0.2, 2.5, 3, mmats.woodDark, 2, 1.25, 0));
+                    
+                    // Front Awning posts
+                    group.add(pillar(0.1, 0.1, 3, mmats.wood, -2.8, 1.5, 2.2));
+                    group.add(pillar(0.1, 0.1, 3, mmats.wood, 2.8, 1.5, 2.2));
+                    
+                    // Awning Roof (Separate from main)
+                    group.add(box(7, 0.2, 1.5, mmats.woodDark, 0, 3, 2.5));
+                    
+                    // Main Roof
+                    group.add(roof(7, 5, 2.5, themeMat, 0, 4, 0));
+                    
+                } else if (civ === 'empire') {
+                    group.add(box(6, 3, 4, mmats.plaster, 0, 1.5, -1));
+                    group.add(roof(7, 5, 2.5, themeMat, 0, 4, 0));
+                    // Goods table
+                    group.add(box(4, 0.5, 2, mmats.woodDark, 0, 0.25, 2));
+                }
+                return group;
+            }
+
+            // 5. CAMP (Universal)
+            function createCamp(civ, themeColor, overrideMat) {
+                const group = new THREE.Group();
+                const themeMat = overrideMat || getThemeMat(themeColor);
+                const mmats = overwriteMatPreset(mats, overrideMat);
+
+                // Logs
+                const logH = 2.5;
+                const logGeo = new THREE.CylinderGeometry(0.2, 0.2, logH, 6);
+                [[-1.5,1.5], [0,1.5], [1.5,1.5], [-1.5,-1.5], [1.5,-1.5]].forEach(pos => {
+                    const l = new THREE.Mesh(logGeo, mmats.woodDark);
+                    l.position.set(pos[0], logH/2, pos[1]);
+                    l.castShadow = true;
+                    group.add(l);
+                });
+
+                // Tarp Roof (Prism)
+                const tentGeo = new THREE.ConeGeometry(2.2, 2, 3);
+                const tent = new THREE.Mesh(tentGeo, themeMat);
+                tent.position.set(0, 2.5, 0);
+                tent.rotation.y = Math.PI / 2;
+                tent.castShadow = true;
+                group.add(tent);
+
+                // Drop point (Crate)
+                group.add(box(1, 1, 1, mmats.wood, 0, 0.5, 1));
+
+                return group;
+            }
+
+            // 6. FARM (Universal)
+            function createFarm(civ, themeColor, overrideMat) {
+                const group = new THREE.Group();
+                const mmats = overwriteMatPreset(mats, overrideMat);
+                
+                // Field
+                group.add(box(5, 0.2, 5, mmats.crop, 0, 0.1, 0));
+                
+                // Crops (simple instances)
+                const cropGeo = new THREE.BoxGeometry(0.2, 0.4, 0.2);
+                for(let x=-2; x<=2; x+=1) {
+                    for(let z=-2; z<=2; z+=1) {
+                        if(Math.random() > 0.3) {
+                            const c = new THREE.Mesh(cropGeo, mmats.crop);
+                            c.position.set(x, 0.4, z);
+                            group.add(c);
+                        }
+                    }
+                }
+
+                // Small Shed (Neutral style)
+                group.add(box(1.5, 1.5, 1.5, mmats.woodDark, 2, 0.75, 2));
+                group.add(roof(2, 2, 1, mmats.woodDark, 2, 1.75, 2));
+
+                return group;
+            }
+
+            // 7. TOWER (IMPROVED)
+            function createTower(civ, themeColor, overrideMat) {
+                const group = new THREE.Group();
+                const themeMat = overrideMat || getThemeMat(themeColor);
+                const mmats = overwriteMatPreset(mats, overrideMat);
+
+                if (civ === 'kingdom') {
+                    // Stone cylinder base
+                    group.add(pillar(1.5, 1.5, 7, mmats.stone, 0, 3.5, 0));
+                    
+                    // Battlements (Top blocks) - simplified ring
+                    const ringGeo = new THREE.TorusGeometry(1.6, 0.3, 4, 8);
+                    const ring = new THREE.Mesh(ringGeo, mmats.stoneDark);
+                    ring.rotation.x = Math.PI / 2;
+                    ring.position.y = 7;
+                    group.add(ring);
+
+                    // Doorway
+                    group.add(box(1.2, 2.5, 0.2, mmats.woodDark, 0, 1.25, 1.51));
+
+                    // Roof
+                    group.add(roof(3, 3, 2.5, themeMat, 0, 8.5, 0));
+
+                } else if (civ === 'empire') {
+                    // Tiered structure
+                    group.add(pillar(1.4, 1.6, 5, mmats.stoneDark, 0, 2.5, 0)); // Tapered base
+                    
+                    // Mid section
+                    group.add(pillar(1.3, 1.3, 2, mmats.plaster, 0, 6, 0));
+                    
+                    // Roof - Flared effect
+                    const r = roof(3.5, 3.5, 3, themeMat, 0, 8.5, 0);
+                    group.add(r);
+
+                    // Windows
+                    group.add(box(0.2, 0.8, 1, mmats.woodDark, 1.41, 6, 0));
+                }
+
+                return group;
+            }
+
+            // --- 4. UNITS ---
+
+            // Helper: Unit Core Body (Capsule)
+            function createUnitBody(color, overrideMat) {
+                const mmats = overwriteMatPreset(mats, overrideMat);
+                const group = new THREE.Group();
+                
+                const themeColor = overrideMat ? undefined : color; // If overrideMat exists, color is ignored inside mats
+                const themeMat = overrideMat || getThemeMat(color);
+
+                // Core Body: Capsule approx height 1.8
+                // Geometry: Radius 0.4, Height (total 1.8 - 2*0.4 = 1.0)
+                const geo = new THREE.CapsuleGeometry(0.4, 1.0, 4, 8); //CapsuleGeometry
+                const mesh = new THREE.Mesh(geo, themeMat);
+                mesh.position.y = 0.9; // Sit on ground
+                mesh.castShadow = true;
+                group.add(mesh);
+
+                // Hands (Small capsules)
+                const handGeo = new THREE.CapsuleGeometry(0.12, 0.2, 4, 8);
+                const leftHand = new THREE.Mesh(handGeo, mmats.skin);
+                leftHand.position.set(-0.5, 1.0, 0);
+                leftHand.rotation.z = Math.PI / 4;
+                group.add(leftHand);
+
+                const rightHand = new THREE.Mesh(handGeo, mmats.skin);
+                rightHand.position.set(0.5, 1.0, 0);
+                rightHand.rotation.z = -Math.PI / 4;
+                group.add(rightHand);
+
+                return group;
+            }
+
+            function createSwordsman(civ, color, overrideMat) {
+                const group = createUnitBody(color, overrideMat);
+                const mmats = overwriteMatPreset(mats, overrideMat);
+
+                // Sword (Right Hand)
+                const swordGeo = new THREE.BoxGeometry(0.1, 1.2, 0.05);
+                const sword = new THREE.Mesh(swordGeo, mmats.metal);
+                sword.position.set(0.6, 1.4, 0.3);
+                sword.rotation.x = +Math.PI / 4; // Point forward
+                group.add(sword);
+
+                // Shield (Left Hand)
+                const shieldGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.05, 12);
+                const shield = new THREE.Mesh(shieldGeo, overrideMat || mmats.metal); // Nope Team color shield
+                shield.rotation.x = Math.PI / 2;
+                shield.rotation.z = -Math.PI / 6;
+                shield.position.set(-0.6, 1.0, 0.2);
+                group.add(shield);
+
+                // Helmet plume
+                const plume = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.4, 0.1, 0.4),
+                    mmats.woodDark
+                );
+                plume.position.set(0, 1.8, 0);
+                group.add(plume);
+
+                return group;
+            }
+
+            function createArcher(civ, color, overrideMat) {
+                const group = createUnitBody(color, overrideMat);
+                const mmats = overwriteMatPreset(mats, overrideMat);
+
+                // Quiver (Back - Cylinder)
+                const quiverGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.7, 8);
+                const quiver = new THREE.Mesh(quiverGeo, mmats.woodDark);
+                quiver.position.set(0, 1.0, -0.5);
+                quiver.rotation.x = -Math.PI / 8;
+                group.add(quiver);
+
+                // Sash/Band (Diagonal Ellipsoid - Torus segment)
+                // Using a Torus and hiding half or just rotating
+                const sashGeo = new THREE.TorusGeometry(0.5, 0.08, 4, 16, 2 * Math.PI);
+                const sash = new THREE.Mesh(sashGeo, mmats.woodDark); //nope overrideMat || getThemeMat(color)
+                sash.position.set(0, 1.1, 0);
+                sash.rotation.order = 'ZYX';
+                sash.rotation.z = Math.PI / 4; // Diagonal across chest
+                sash.rotation.y = Math.PI / 2; // Face the right way
+                //sash.rotation.x = Math.PI / 2;
+                group.add(sash);
+
+                // Bow (Cylinder in hand)
+                //const bowGeo = new THREE.CylinderGeometry(0.05, 0.05, 1.2, 6);
+                const bowGeo = new THREE.TorusGeometry(0.5, 0.04, 4, 8, Math.PI);
+                const bow = new THREE.Mesh(bowGeo, mmats.wood);
+                bow.position.set(0.6, 1.2, 0.2);
+                bow.rotation.z = -Math.PI / 3;
+                bow.rotation.y = -Math.PI / 2;
+                group.add(bow);
+
+                return group;
+            }
+
+            function createCavalry(civ, color, overrideMat) {
+                const group = new THREE.Group();
+                const mmats = overwriteMatPreset(mats, overrideMat);
+                const themeMat = overrideMat || getThemeMat(color);
+
+                // --- HORSE BASE (Low Poly Box Style) ---
+                // Body
+                const horseBody = new THREE.Mesh(
+                    new THREE.BoxGeometry(1.2, 1.0, 2.5),
+                    mmats.woodDark // Dark brown horse
+                );
+                horseBody.position.y = 1.2;
+                group.add(horseBody);
+
+                // Neck
+                const neck = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.6, 1.0, 0.8),
+                    mmats.woodDark
+                );
+                neck.position.set(0, 1.8, 1.2);
+                neck.rotation.x = -Math.PI / 6;
+                group.add(neck);
+
+                // Head
+                const head = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.5, 0.5, 1.0),
+                    mmats.woodDark
+                );
+                head.position.set(0, 2.4, 1.8);
+                group.add(head);
+
+                // Legs (4 simplified boxes)
+                [[-0.4, 1.0], [0.4, 1.0], [-0.4, -1.0], [0.4, -1.0]].forEach(pos => {
+                    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.2, 0.2), mmats.woodDark);
+                    leg.position.set(pos[0], 0.6, pos[1]);
+                    group.add(leg);
+                });
+
+                // --- RIDER ---
+                const rider = createUnitBody(color, overrideMat);
+                rider.position.set(0, 1.5, -0.5); // Sit on back
+                rider.scale.set(0.8, 0.8, 0.8); // Rider slightly smaller
+                group.add(rider);
+
+                return group;
+            }
+
+            function createPhalanx(civ, color, overrideMat) {
+                const group = createUnitBody(color, overrideMat);
+                const mmats = overwriteMatPreset(mats, overrideMat);
+
+                // Long Spear (Right Hand)
+                const spearGeo = new THREE.CylinderGeometry(0.05, 0.05, 3.5, 6);
+                const spear = new THREE.Mesh(spearGeo, mmats.wood);
+                // Position: Pointing up and forward
+                spear.position.set(0.5, 2.0, 0.5); 
+                spear.rotation.x = +Math.PI / 6;
+                group.add(spear);
+
+                // Spear Tip (Cone)
+                const tipGeo = new THREE.ConeGeometry(0.1, 0.4, 6);
+                const tip = new THREE.Mesh(tipGeo, mmats.metal);
+                tip.position.set(0.5, 3.6, 1.4); // End of spear
+                tip.rotation.x = +Math.PI / 6;
+                group.add(tip);
+
+                // Large Shield (Left Hand - Tower Shield)
+                const shieldGeo = new THREE.BoxGeometry(0.8, 1.5, 0.1);
+                const shield = new THREE.Mesh(shieldGeo, mmats.metal); //overrideMat || getThemeMat(color)
+                shield.position.set(-0.6, 1.0, 0.3);
+                group.add(shield);
+
+                return group;
+            }
+
+            function createCatapult(civ, color, overrideMat) {
+                const group = new THREE.Group();
+                const mmats = overwriteMatPreset(mats, overrideMat);
+
+                // Base Cart
+                group.add(box(2, 0.5, 3, mmats.wood, 0, 0.5, 0));
+                // Wheels
+                group.add(pillar(0.4, 0.4, 0.2, mmats.woodDark, -1, 0.4, 1.5));
+                group.add(pillar(0.4, 0.4, 0.2, mmats.woodDark, 1, 0.4, 1.5));
+                group.add(pillar(0.4, 0.4, 0.2, mmats.woodDark, -1, 0.4, -1.5));
+                group.add(pillar(0.4, 0.4, 0.2, mmats.woodDark, 1, 0.4, -1.5));
+
+                // Frame
+                const frameVert = new THREE.Mesh(new THREE.BoxGeometry(0.2, 2, 0.2), mmats.woodDark);
+                frameVert.position.set(-0.6, 1.5, 0);
+                group.add(frameVert);
+                const frameVert2 = frameVert.clone();
+                frameVert2.position.set(0.6, 1.5, 0);
+                group.add(frameVert2);
+
+                // Throwing Arm (Rotated Box)
+                const arm1 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 3.5, 0.3), mmats.wood);
+                arm1.position.set(0.8, 2, 0);
+                arm1.rotation.z = Math.PI / 2.5; // Angled back
+                arm1.rotation.y = Math.PI / 2;
+                group.add(arm1);
+                const arm2 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 3.5, 0.3), mmats.wood);
+                arm2.position.set(-0.8, 2, 0);
+                arm2.rotation.z = Math.PI / 2.5; // Angled back
+                arm2.rotation.y = Math.PI / 2;
+                group.add(arm2);
+                const beam1 = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.3, 0.3), mmats.wood);
+                beam1.position.set(0, 2.5, 1.4);
+                group.add(beam1);
+                const beam2 = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.3, 0.3), mmats.wood);
+                beam2.position.set(0, 1.5, -1.4);
+                group.add(beam2);
+
+                // Bucket/Rope holding area
+                const bucket = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.5, 0.8), mmats.woodDark);
+                bucket.position.set(0, 3.2, 1.0);
+                group.add(bucket);
+
+                return group;
+            }
+
+            // 5. FLAG (MISC)
+            function createFlag(color) {
+                const group = new THREE.Group();
+                const themeMat = new THREE.MeshLambertMaterial({ color: color });
+
+                // Pole
+                const poleGeo = new THREE.CylinderGeometry(0.05, 0.05, 3, 8);
+                const poleMat = new THREE.MeshStandardMaterial({ color: 0x555555 });
+                const pole = new THREE.Mesh(poleGeo, poleMat);
+                pole.position.y = 1.5;
+                pole.castShadow = true;
+                group.add(pole);
+
+                // Flag
+                const flagGeo = new THREE.PlaneGeometry(1, 0.6);
+                const flag = new THREE.Mesh(flagGeo, themeMat);
+                flag.position.set(0.5, 2.5, 0);
+                flag.castShadow = true;
+                group.add(flag);
+
+                return group;
+            }
+
+            // Public API
+            return {
+                create: function(type, civ, color, overrideMat) {
+                    // Adjust Civ for neutral buildings
+                    let effectiveCiv = civ;
+                    if (type === 'camp' || type === 'farm') effectiveCiv = 'neutral';
+
+                    switch(type) {
+                        case 'townCenter': return createTownCenter(effectiveCiv, color, overrideMat);
+                        case 'house': return createHouse(effectiveCiv, color, overrideMat);
+                        case 'barracks': return createBarracks(effectiveCiv, color, overrideMat);
+                        case 'market': return createMarket(effectiveCiv, color, overrideMat);
+                        case 'camp': return createCamp(effectiveCiv, color, overrideMat);
+                        case 'farm': return createFarm(effectiveCiv, color, overrideMat);
+                        case 'tower': return createTower(effectiveCiv, color, overrideMat);
+                        // Units
+                        case 'swordsman': return createSwordsman(effectiveCiv, color, overrideMat);
+                        case 'archer': return createArcher(effectiveCiv, color, overrideMat);
+                        case 'cavalry': return createCavalry(effectiveCiv, color, overrideMat);
+                        case 'phalanx': return createPhalanx(effectiveCiv, color, overrideMat);
+                        case 'catapult': return createCatapult(effectiveCiv, color, overrideMat);
+                        // Misc
+                        case 'flag': return createFlag(color);
+                        default: return new THREE.Group();
+                    }
+                }
+            };
+        })();
+
+        /**
+         * APPLICATION LOGIC (UI & SCENE SETUP)
+         */
+        
+        let scene, camera, renderer, controls;
+        let currentMesh = null;
+        let towerArrow = null;
+
+        function init() {
+            const container = document.getElementById('canvas-container');
+            
+            // Scene
+            scene = new THREE.Scene();
+            
+            // Camera
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+            camera.position.set(8, 6, 8);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            // Controls
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxPolarAngle = Math.PI / 2 - 0.1; // Don't go below ground
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(5, 10, 7);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 1024;
+            dirLight.shadow.mapSize.height = 1024;
+            scene.add(dirLight);
+
+            // Grid Helper (Floor)
+            const grid = new THREE.GridHelper(30, 30, 0x555555, 0x333333);
+            scene.add(grid);
+
+            // Initial Generation
+            generateAsset();
+            animate();
+
+            // Handle Resize
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        function onWindowResize() {
+            const container = document.getElementById('canvas-container');
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            
+            // Arrow Animation for Tower
+            if (towerArrow) {
+                towerArrow.position.y -= 0.2;
+                // Simple rotation to mimic arc
+                towerArrow.rotation.z += 0.01;
+
+                if(towerArrow.position.y < 0) {
+                    scene.remove(towerArrow);
+                    towerArrow = null;
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function generateAsset() {
+            // Cleanup previous
+            if (currentMesh) {
+                scene.remove(currentMesh);
+                // Traverse and dispose geometries/materials for memory safety
+                currentMesh.traverse((child) => {
+                    if (child.isMesh) {
+                        child.geometry.dispose();
+                        // Only dispose material if it's not a shared preset material
+                        // For simplicity in this tool, we skip complex mat disposal checks
+                    }
+                });
+            }
+            if (towerArrow) {
+                scene.remove(towerArrow);
+                towerArrow = null;
+            }
+
+            // Get Inputs
+            const type = document.getElementById('assetType').value;
+            const civ = document.getElementById('civilization').value;
+            const color = document.getElementById('themeColor').value;
+            const scale = parseFloat(document.getElementById('scaleSlider').value);
+
+            // Generate
+            currentMesh = AssetFactory.create(type, civ, color);
+            
+            // Apply Scale
+            currentMesh.scale.set(scale, scale, scale);
+            
+            scene.add(currentMesh);
+
+            // UI Updates
+            document.getElementById('scaleVal').textContent = scale.toFixed(1);
+            
+            // Show Tower Button only for towers
+            const btnTower = document.getElementById('btnTowerTest');
+            btnTower.style.display = (type === 'tower') ? 'block' : 'none';
+
+            // Code Preview
+            const code = `AssetFactory.create("${type}", "${civ}", "${color}");`;
+            document.getElementById('code-preview').textContent = code;
+        }
+
+        function shootTowerArrow() {
+            if (!currentMesh) return;
+            
+            // Calculate actual height of the mesh to start arrow from top
+            const box = new THREE.Box3().setFromObject(currentMesh);
+            const height = box.max.y;
+
+            // Simple visual effect: small cylinder dropping from top
+            const geo = new THREE.CylinderGeometry(0.05, 0.05, 0.5);
+            const mat = new THREE.MeshLambertMaterial({color: 0x000000});
+            towerArrow = new THREE.Mesh(geo, mat);
+            
+            // Start at top of calculated height
+            towerArrow.position.set(0, height + 1, 0);
+            
+            scene.add(towerArrow);
+        }
+
+        // Event Listeners
+        document.getElementById('btnGenerate').addEventListener('click', generateAsset);
+        document.getElementById('assetType').addEventListener('change', () => {
+             // Force neutral for specific types
+             const type = document.getElementById('assetType').value;
+             const civSelect = document.getElementById('civilization');
+             
+             // List of types that force Neutral civ
+             const neutralTypes = ['camp', 'farm', 'swordsman', 'archer', 'cavalry', 'phalanx', 'catapult', 'flag'];
+             
+             if(neutralTypes.includes(type)) {
+                 civSelect.value = 'neutral';
+                 civSelect.disabled = true;
+             } else {
+                 civSelect.disabled = false;
+                 if(civSelect.value === 'neutral') civSelect.value = 'kingdom';
+             }
+             generateAsset();
+        });
+        
+        document.getElementById('civilization').addEventListener('change', generateAsset);
+        document.getElementById('themeColor').addEventListener('input', generateAsset);
+        document.getElementById('scaleSlider').addEventListener('input', generateAsset);
+        document.getElementById('btnTowerTest').addEventListener('click', shootTowerArrow);
+
+        // Run
+        init();
+
+    </script>
+</body>
+</html>
