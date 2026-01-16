@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Low-Code Data Science Prototype</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Dexie JS (IndexedDB Wrapper) -->
+    <script src="https://unpkg.com/dexie"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        /* Custom Scrollbar for the spreadsheet view */
+        .scroll-container::-webkit-scrollbar { width: 8px; height: 8px; }
+        .scroll-container::-webkit-scrollbar-thumb { background: #c5c5c5; border-radius: 4px; }
+        .scroll-container::-webkit-scrollbar-track { background: #f0f0f0; }
+        
+        /* Editable cell style */
+        .editable-cell {
+            border: 1px solid transparent;
+            transition: all 0.2s;
+        }
+        .editable-cell:hover {
+            border-color: #3b82f6;
+            background-color: #eff9ff;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 h-screen flex flex-col overflow-hidden">
+
+    <!-- Navigation Bar -->
+    <header class="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between shadow-sm z-10">
+        <div class="flex items-center gap-3">
+            <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-xs">JS</div>
+            <h1 class="text-xl font-bold text-gray-800 tracking-tight">Low-Code Data Engine</h1>
+        </div>
+        <div class="flex gap-4 text-sm text-gray-500">
+            <span>Storage: IndexedDB (Dexie)</span>
+            <span>Renderer: Chart.js</span>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="flex-1 overflow-hidden flex">
+        
+        <!-- LEFT PANEL: The "Spreadsheet" Editor -->
+        <section class="w-1/3 h-full flex flex-col border-r border-gray-300 bg-white p-6 overflow-hidden shadow-inner">
+            <div class="mb-4">
+                <h2 class="text-lg font-bold text-gray-800 mb-1">Data Source</h2>
+                <p class="text-xs text-gray-500">Edit raw values. Changes reflect in charts instantly.</p>
+            </div>
+            
+            <div class="bg-yellow-50 p-4 rounded-lg border border-yellow-200 mb-4">
+                <div class="flex items-center gap-2 mb-2">
+                    <svg class="w-4 h-4 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M13.5 7.5l-2.5 2.5-2.5 2.5M12 9v8h8M19 13.5l2.5 2.5 2.5-2.5 2.5-2.5-2.5zM10 13.5l2.5-2.5 2.5-2.5-2.5-2.5zM7 17h7M7 21H3l2-2M5 21h10"></path></svg>
+                    <span class="text-xs font-bold text-yellow-800 uppercase tracking-wide">Low-Code Action</span>
+                </div>
+                <button id="addDataRowBtn" class="w-full bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 font-medium py-2 px-4 rounded shadow-sm text-sm transition-colors">
+                    + Add Data Row
+                </button>
+            </div>
+
+            <!-- The Spreadsheet Grid -->
+            <div class="overflow-auto flex-1 scroll-container p-1" id="spreadsheetContainer">
+                <!-- Grid injected by JS -->
+            </div>
+        </section>
+
+        <!-- RIGHT PANEL: The "Low-Code App" View -->
+        <section class="flex-1 h-full flex flex-col bg-gray-50 relative">
+            
+            <!-- Toolbar -->
+            <div class="border-b border-gray-200 bg-white px-6 py-3 flex justify-between items-center">
+                <span class="text-sm font-bold text-gray-500">WIDGETS CONFIGURATION</span>
+                <button id="addChartBtn" class="bg-blue-600 text-white text-sm px-4 py-1.5 rounded hover:bg-blue-700 transition shadow-md">
+                    + Add Visualization
+                </button>
+            </div>
+
+            <!-- Dashboard Canvas -->
+            <div class="flex-1 p-6 overflow-auto h-full" id="dashboardContainer">
+                <!-- Charts injected by JS -->
+                <div class="h-full flex items-center justify-center text-gray-400">
+                    <span class="text-center w-full">Dashboard is empty. Add a visualization.</span>
+                </div>
+            </div>
+        </section>
+    </main>
+
+
+    <!-- Application Logic -->
+    <script>
+        // --- 1. DEXIE CONFIGURATION (IndexedDB) ---
+        const db = new Dexie("LowCodeAppDB");
+        // We define two tables: 'rawData' (the spreadsheet rows) and 'vizConfig' (the chart definitions)
+        db.version(1).stores({
+            rawData: '++id, category, value', 
+            vizConfig: '++id, type, title, config'
+        });
+
+        // --- 2. INITIAL DATA SEEDING ---
+        async function seedData() {
+            const count = await db.rawData.count();
+            if (count === 0) {
+                await db.rawData.bulkAdd([
+                    { category: 'Q1', value: 30 },
+                    { category: 'Q2', value: 80 },
+                    { category: 'Q3', value: 45 },
+                    { category: 'Q4', value: 90 }
+                ]);
+                await db.vizConfig.add({
+                    type: 'bar', 
+                    title: 'Quarterly Performance', 
+                    config: { label: 'Revenue' } 
+                });
+            }
+        }
+        seedData();
+
+        // --- 3. RENDER LOGIC ---
+        
+        // Render the spreadsheet (Left Panel)
+        async function renderSpreadsheet() {
+            const container = document.getElementById('spreadsheetContainer');
+            container.innerHTML = ''; // Clear current view
+
+            const data = await db.rawData.toArray();
+            const vizConfigs = await db.vizConfig.toArray();
+
+            // --- Render The Grid ---
+            // We create a simple table structure
+            const tableDiv = document.createElement('div');
+            tableDiv.className = 'bg-white border border-gray-300 shadow rounded';
+            
+            // Header
+            const headerRow = document.createElement('div');
+            headerRow.className = 'flex border-b border-gray-200 bg-gray-100';
+            headerRow.innerHTML = `
+                <div class="w-16 border-r border-gray-300 p-3 text-xs text-gray-500 font-mono text-center">#</div>
+                <div class="flex-1 p-3 text-sm font-bold text-gray-700 uppercase tracking-wide border-r border-gray-300">Category</div>
+                <div class="flex-1 p-3 text-sm font-bold text-gray-700 uppercase tracking-wide">Value</div>
+            `;
+            tableDiv.appendChild(headerRow);
+
+            // Rows
+            data.forEach((row, index) => {
+                const rowDiv = document.createElement('div');
+                rowDiv.className = 'flex border-b border-gray-200 hover:bg-blue-50 transition-colors';
+                
+                // Delete Button
+                const delBtn = document.createElement('button');
+                delBtn.innerHTML = '&times;';
+                delBtn.className = 'w-8 h-full text-red-400 bg-transparent hover:bg-red-100 text-xl leading-none';
+                delBtn.onclick = () => deleteRow(row.id);
+
+                // ID
+                const idDiv = document.createElement('div');
+                idDiv.className = 'w-12 border-r border-gray-300 p-3 text-xs text-gray-500 font-mono text-center select-none';
+                idDiv.innerText = index + 1;
+
+                // Editable Category
+                const catInput = document.createElement('input');
+                catInput.className = 'w-full bg-transparent p-3 outline-none text-sm text-gray-700';
+                catInput.value = row.category;
+                catInput.onchange = (e) => {
+                    db.rawData.update(row.id, { category: e.target.value });
+                    renderAll(); // Reactive update
+                };
+
+                // Editable Value
+                const valInput = document.createElement('input');
+                valInput.className = 'w-full bg-transparent p-3 outline-none text-sm text-blue-600 font-bold';
+                valInput.type = 'number';
+                valInput.value = row.value;
+                valInput.onchange = (e) => {
+                    db.rawData.update(row.id, { value: parseInt(e.target.value) });
+                    renderAll(); // Reactive update
+                };
+
+                // Assemble Row
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'flex-1 flex items-center';
+                contentDiv.append(catInput);
+                contentDiv.append(valInput);
+                
+                // Add Del Btn
+                const btnContainer = document.createElement('div');
+                btnContainer.className = 'flex-1 flex border-l border-gray-300 items-center';
+                btnContainer.append(contentDiv);
+                btnContainer.append(delBtn);
+                
+                rowDiv.append(idDiv);
+                rowDiv.append(btnContainer);
+                
+                tableDiv.appendChild(rowDiv);
+            });
+
+            container.appendChild(tableDiv);
+        }
+
+        // Render the Dashboard (Right Panel)
+        const chartInstances = {}; // Store Chart.js instances to destroy/update them
+
+        async function renderDashboard() {
+            const container = document.getElementById('dashboardContainer');
+            const configs = await db.vizConfig.toArray();
+            
+            // Clear container but keep the "Add" button area logic if we want
+            // For simplicity, we'll just wipe the charts
+            container.innerHTML = '';
+
+            const data = await db.rawData.toArray();
+
+            configs.forEach((config) => {
+                // Create a canvas wrapper
+                const wrapper = document.createElement('div');
+                wrapper.className = 'bg-white border border-gray-200 shadow-sm rounded-lg p-4 relative mb-4';
+                
+                // Delete Widget Button
+                const delBtn = document.createElement('button');
+                delBtn.innerHTML = '&times;';
+                delBtn.className = 'absolute top-2 right-2 text-gray-400 hover:text-red-500';
+                delBtn.onclick = () => { db.vizConfig.delete(config.id).then(renderAll); };
+                wrapper.append(delBtn);
+
+                // Header
+                const header = document.createElement('h4');
+                header.className = 'text-sm font-bold text-gray-500 mb-2 uppercase tracking-wide';
+                header.innerText = config.title;
+                wrapper.append(header);
+
+                // Canvas
+                const canvas = document.createElement('canvas');
+                canvas.className = 'max-w-full';
+                canvas.id = `chart-${config.id}`;
+                wrapper.append(canvas);
+                container.append(wrapper);
+
+                // Render the chart using Chart.js
+                const ctx = canvas.getContext('2d');
+                
+                // Destroy existing chart instance if updating
+                if (chartInstances[config.id]) {
+                    chartInstances[config.id].destroy();
+                }
+
+                const chart = new Chart(ctx, {
+                    type: config.type,
+                    data: {
+                        labels: data.map(d => d.category),
+                        datasets: [{
+                            label: config.config.label || 'Dataset',
+                            data: data.map(d => d.value),
+                            backgroundColor: ['#3b82f6', '#34d399', '#f59e0e', '#ef4444', '#a8a8a8'].slice(0, data.length > 0 ? data.length : 1),
+                            borderColor: '#1e4f8c',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: false,
+                        maintainAspectRatio: false
+                    }
+                });
+
+                chartInstances[config.id] = chart;
+            });
+        }
+
+        // --- 4. UTILITIES & EVENTS ---
+
+        // Helper to force re-render of everything
+        async function renderAll() {
+            // 1. Clear existing charts to prevent memory leaks or visual artifacts
+            // (In a real app, we'd be more granular, but for this POC, we wipe and redraw)
+            
+            // 2. Re-render Spreadsheet
+            await renderSpreadsheet();
+            
+            // 3. Re-render Dashboard
+            await renderDashboard();
+        }
+
+        // Initial Render
+        renderAll();
+
+        // Delete Row Handler
+        function deleteRow(id) {
+            db.rawData.delete(id).then(renderAll);
+        }
+
+        // Add Chart Handler
+        document.getElementById('addChartBtn').onclick = () => {
+            const title = prompt("Enter Chart Title (e.g., 'Sales Forecast')", "New Chart");
+            if(!title) return;
+            const type = prompt("Enter chart type (eg., bar,line...)", "line");
+            const label = prompt("Enter y-axis label (eg., 'Volume')", "Metric");
+            db.vizConfig.add({
+                type: type,
+                title: title,
+                config: { label: (label ? label : 'Metric') }
+            }).then(() => renderAll());
+        };
+
+        // Add Data Row Handler
+        document.getElementById('addDataRowBtn').onclick = () => {
+            db.rawData.add({
+                category: 'New Category',
+                value: Math.floor(Math.random() * 100)
+            }).then(() => renderAll());
+        };
+
+    </script>
+</body>
+</html>
+
