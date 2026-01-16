@@ -1,0 +1,1006 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Semi-Auto Rigger Tool</title>
+    <style>
+        :root {
+            --bg-color: #1e1e1e;
+            --panel-bg: #252526;
+            --text-color: #d4d4d4;
+            --accent-color: #007acc;
+            --accent-hover: #005f9e;
+            --border-color: #3e3e42;
+            --input-bg: #3c3c3c;
+        }
+
+        * { box-sizing: border-box; user-select: none; }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            overflow: hidden;
+            display: flex;
+            height: 100vh;
+        }
+
+        /* Layout */
+        #viewport {
+            flex-grow: 1;
+            position: relative;
+            background: radial-gradient(circle at center, #2d2d30 0%, #1e1e1e 100%);
+        }
+
+        #sidebar {
+            width: 320px;
+            background-color: var(--panel-bg);
+            border-left: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            padding: 1rem;
+            gap: 1rem;
+            overflow-y: auto;
+            z-index: 10;
+            box-shadow: -2px 0 5px rgba(0,0,0,0.2);
+        }
+
+        /* UI Components */
+        h1 { font-size: 1.2rem; margin: 0 0 0.5rem 0; color: #fff; }
+        h2 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; color: #888; margin: 1rem 0 0.5rem 0; border-bottom: 1px solid var(--border-color); padding-bottom: 4px;}
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        label { font-size: 0.85rem; display: flex; justify-content: space-between; }
+
+        input[type="file"] { display: none; }
+        
+        .file-btn {
+            background-color: var(--input-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            padding: 8px 12px;
+            cursor: pointer;
+            text-align: center;
+            border-radius: 4px;
+            transition: background 0.2s;
+            font-size: 0.85rem;
+        }
+        .file-btn:hover { background-color: var(--border-color); }
+
+        button.primary-btn {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 10px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+        button.primary-btn:hover { background-color: var(--accent-hover); }
+        button.primary-btn:disabled { background-color: #444; cursor: not-allowed; opacity: 0.6; }
+
+        .slider-container { display: flex; align-items: center; gap: 10px; }
+        input[type="range"] { flex-grow: 1; cursor: pointer; }
+
+        .info-panel {
+            font-size: 0.8rem;
+            background: rgba(0,0,0,0.2);
+            padding: 8px;
+            border-radius: 4px;
+            line-height: 1.4;
+        }
+
+        /* Overlays & Feedback */
+        #loading-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 1.5rem;
+            z-index: 100;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        #loading-overlay.active { opacity: 1; pointer-events: all; }
+
+        #toast-container {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            pointer-events: none;
+            z-index: 50;
+        }
+        .toast {
+            background: rgba(30, 30, 30, 0.9);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 20px;
+            border: 1px solid var(--accent-color);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            font-size: 0.9rem;
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Helper instructions */
+        .instruction-tag {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.7rem;
+            font-weight: bold;
+            margin-right: 5px;
+        }
+        .tag-key { background: #444; border: 1px solid #666; }
+        .tag-mouse { background: #444; border: 1px solid #666; }
+
+    </style>
+    <!-- Import Map for Three.js and Addons -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://esm.sh/three@0.160.0",
+                "three/addons/": "https://esm.sh/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <div id="viewport">
+        <div id="loading-overlay">Loading...</div>
+        <div id="toast-container"></div>
+    </div>
+
+    <aside id="sidebar">
+        <div>
+            <h1>Auto-Rigger Tool</h1>
+            <div class="info-panel">
+                1. Load GLB Mesh<br>
+                2. Load BVH Skeleton<br>
+                3. Drag Bones to fit Mesh<br>
+                4. Bind & Export
+            </div>
+        </div>
+
+        <div class="control-group">
+            <h2>1. Import</h2>
+            <label class="file-btn">
+                Load Mesh (.glb/.gltf)
+                <input type="file" id="input-mesh" accept=".glb,.gltf">
+            </label>
+            <label class="file-btn">
+                Load Skeleton (.bvh)
+                <input type="file" id="input-bvh" accept=".bvh">
+            </label>
+        </div>
+
+        <div class="control-group">
+            <h2>2. Skeleton Tools</h2>
+            <div class="info-panel">
+                <span class="instruction-tag tag-key">LMB</span>Select Bone<br>
+                <span class="instruction-tag tag-key">R</span>Rotate Mode<br>
+                <span class="instruction-tag tag-key">T</span>Translate Mode<br>
+                <span class="instruction-tag tag-mouse">Drag</span> Gizmo to Move
+            </div>
+            <button id="btn-reset-pose" class="file-btn" disabled>Reset Bone Pose to T</button>
+        </div>
+
+        <div class="control-group">
+            <h2>Animation Preview</h2>
+            <button id="btn-toggle-anim" class="file-btn" disabled>Pause Animation</button>
+            <label>Timeline Scrubber</label>
+            <input type="range" id="inp-timeline" min="0" max="100" step="0.01" value="0" disabled>
+            <div style="font-size: 0.8rem; display: flex; justify-content: space-between; margin-top: 5px;">
+                <span id="time-display">0.00s</span>
+                <span id="duration-display">0.00s</span>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <h2>3. Skinning</h2>
+            <label>Weight Influence Radius <span id="val-radius">0.5</span></label>
+            <div class="slider-container">
+                <input type="range" id="inp-radius" min="0.1" max="5.0" step="0.1" value="0.5">
+            </div>
+            <label>Gaussian Falloff</label>
+            <input type="checkbox" id="inp-gaussian" checked>
+            
+            <button id="btn-bind" class="primary-btn" disabled>Auto-Skin (Bind)</button>
+        </div>
+
+        <div class="control-group">
+            <h2>4. Export</h2>
+            <button id="btn-export" class="primary-btn" disabled>Export Rigged GLB</button>
+        </div>
+        
+        <div style="flex-grow: 1;"></div>
+        <div style="font-size: 0.75rem; color: #666; text-align: center;">
+            Processing is local only.
+        </div>
+    </aside>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { BVHLoader } from 'three/addons/loaders/BVHLoader.js';
+        import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { TransformControls } from 'three/addons/controls/TransformControls.js';
+
+
+        // --- Animation Globals ---
+        const clock = new THREE.Clock();
+        let mixer = null;
+        let clipAction = null;
+        let isPaused = false;
+        let isDraggingSlider = false;
+
+        // --- Global State ---
+        const state = {
+            mesh: null,           // Original loaded mesh
+            skinnedMesh: null,    // The resulting SkinnedMesh
+            skeleton: null,       // Three.js Skeleton object
+            boneHelpers: [],      // Array of visual helpers (Sphere + Line)
+            bvhRoot: null,        // Root of the loaded BVH tree
+            isRigged: false,
+            influenceRadius: 0.5,
+            gaussian: true
+        };
+
+        // --- Scene Setup ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1e1e1e);
+        // Grid for reference
+        const gridHelper = new THREE.GridHelper(20, 20, 0x444444, 0x2a2a2a);
+        scene.add(gridHelper);
+        
+        // Camera
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(2, 1.5, 3);
+
+        // Renderer
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth - 320, window.innerHeight); // Adjust for sidebar
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        document.getElementById('viewport').appendChild(renderer.domElement);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+        dirLight.position.set(5, 10, 7);
+        scene.add(dirLight);
+
+        // Controls
+        const orbit = new OrbitControls(camera, renderer.domElement);
+        orbit.enableDamping = true;
+
+        const transformControl = new TransformControls(camera, renderer.domElement);
+        transformControl.addEventListener('dragging-changed', function (event) {
+            orbit.enabled = !event.value;
+        });
+        // When bone is moved, update visual helper lines
+        transformControl.addEventListener('change', () => {
+            if (state.skeleton) {
+                state.skeleton.bones.forEach(b => b.updateMatrixWorld());
+                updateBoneHelpers();
+            }
+        });
+        scene.add(transformControl);
+
+        // Raycaster for picking bones
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        
+        // --- Interaction Logic ---
+
+        /*function onPointerDown(event) {
+            if (!state.skeleton || event.target !== renderer.domElement) return;
+
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            
+            // Check intersection with bone helper spheres
+            const spheres = state.boneHelpers.map(h => h.sphere);
+            const intersects = raycaster.intersectObjects(spheres, false);
+
+            if (intersects.length > 0) {
+                // Find which bone belongs to this sphere
+                const object = intersects[0].object;
+                const helper = state.boneHelpers.find(h => h.sphere === object);
+                if (helper) {
+                    transformControl.attach(helper.bone);
+                }
+            } else {
+                // If clicked empty space, detach unless we are manipulating
+                transformControl.detach();
+            }
+        }*/
+
+        function onPointerDown(event) {
+            if (!state.skeleton || event.target !== renderer.domElement) return;
+
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            
+
+
+            // Check intersection with bone helper spheres
+            const spheres = state.boneHelpers.map(h => h.sphere);
+            const intersects = raycaster.intersectObjects(spheres, false);
+
+            if (intersects.length > 0) {
+                // Find which bone belongs to this sphere
+                const object = intersects[0].object;
+                const helper = state.boneHelpers.find(h => h.sphere === object);
+                if (helper) {
+                    transformControl.attach(helper.bone);
+                }
+            } else {
+                // Clicked empty space -> Detach
+            // --- FIX: Check if we clicked the Transform Gizmo (arrows/planes) ---
+            // We must check this BEFORE checking the bones. 
+            // If we hit the gizmo, we stop here so the TransformControls can handle the drag logic.
+            const gizmoIntersects = raycaster.intersectObjects(transformControl.children, true);
+            if (gizmoIntersects.length > 0) {
+                return; // Clicked gizmo -> Do nothing (let the gizmo handle the move)
+            }
+            // -----------------------------------------------------------------
+                transformControl.detach();
+            }
+        }
+
+
+        window.addEventListener('pointerdown', onPointerDown);
+        
+        // Keyboard Shortcuts for Transform Modes
+        window.addEventListener('keydown', (event) => {
+            switch(event.key.toLowerCase()) {
+                case 't': transformControl.setMode('translate'); break;
+                case 'r': transformControl.setMode('rotate'); break;
+            }
+        });
+
+        window.addEventListener('resize', () => {
+            const w = window.innerWidth - 320;
+            camera.aspect = w / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, window.innerHeight);
+        });
+
+        // --- Core Functions ---
+
+        function setLoading(active) {
+            const el = document.getElementById('loading-overlay');
+            if(active) el.classList.add('active');
+            else el.classList.remove('active');
+        }
+
+        function showToast(msg) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.innerText = msg;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        // 1. Load Mesh
+        document.getElementById('input-mesh').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            setLoading(true);
+            const loader = new GLTFLoader();
+            const url = URL.createObjectURL(file);
+
+            loader.load(url, (gltf) => {
+                // Cleanup previous
+                if (state.mesh) scene.remove(state.mesh);
+                if (state.skinnedMesh) scene.remove(state.skinnedMesh);
+
+                state.mesh = gltf.scene;
+                
+                // Normalize size/position to make it easier to handle
+                const box = new THREE.Box3().setFromObject(state.mesh);
+                const center = box.getCenter(new THREE.Vector3());
+                const size = box.getSize(new THREE.Vector3());
+                const maxDim = Math.max(size.x, size.y, size.z);
+                const scale = 1.8 / maxDim; // Normalize to approx 1.8 units height
+
+                state.mesh.position.x -= center.x;
+                state.mesh.position.y -= box.min.y; // Sit on floor
+                state.mesh.position.z -= center.z;
+                state.mesh.scale.setScalar(scale);
+                
+                // Add basic material if missing or to ensure it looks good
+                state.mesh.traverse((child) => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                        if(!child.material) child.material = new THREE.MeshStandardMaterial({ color: 0xcccccc });
+                    }
+                });
+
+                scene.add(state.mesh);
+                setLoading(false);
+                showToast("Mesh Loaded");
+                updateUI();
+
+            }, undefined, (err) => {
+                console.error(err);
+                setLoading(false);
+                showToast("Error loading mesh");
+            });
+        });
+
+        // 2. Load BVH
+        document.getElementById('input-bvh').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            setLoading(true);
+            const loader = new BVHLoader();
+            const url = URL.createObjectURL(file);
+
+            loader.load(url, (result) => {
+                // cleanup old rig
+                clearBoneHelpers();
+                if (state.skinnedMesh) scene.remove(state.skinnedMesh);
+
+// Remove previous root from scene if it existed
+                if (state.bvhRoot && state.bvhRoot.parent) {
+                    scene.remove(state.bvhRoot);
+                }
+
+                state.skeleton = null;
+                let bonesList = [];
+                let rootBone = null;
+
+console.log(result);
+
+
+                // --- ADAPTIVE LOGIC ---
+                // Check if result.skeleton is an Object3D (Standard behavior) 
+                // or a Skeleton object (Your current behavior)
+                
+                if (result.skeleton.isObject3D) {
+                    // CASE 1: Standard Three.js Object3D hierarchy
+                    state.bvhRoot = result.skeleton;
+                    
+                    // Collect all bones from the hierarchy
+                    state.bvhRoot.traverse((node) => {
+                        if (node.isBone) bonesList.push(node);
+                    });
+
+                    // Create a Skeleton object wrapping the bones
+                    state.skeleton = new THREE.Skeleton(bonesList);
+
+                } else if (result.skeleton && result.skeleton.bones) {
+                    // CASE 2: result.skeleton is already a Skeleton object (or data object)
+                    const loadedSkeleton = result.skeleton;
+                    bonesList = loadedSkeleton.bones;
+
+                    // We need a root Object3D to add to the scene. 
+                    // We must find the root bone (usually the one with no parent in the list, or index 0)
+                    rootBone = bonesList.find(b => !b.parent || !b.parent.isBone) || bonesList[0];
+                    
+                    state.bvhRoot = rootBone;
+                    state.skeleton = loadedSkeleton;
+                } else {
+                    console.error("Unknown BVH structure", result);
+                    setLoading(false);
+                    showToast("Error: Unknown BVH structure");
+                    return;
+                }
+
+
+                // --- NEW: Initialize Animation Mixer ---
+                // The BVH result contains the 'clip' (animation data)
+                if (result.clip) {
+                    mixer = new THREE.AnimationMixer(state.bvhRoot);
+                    clipAction = mixer.clipAction(result.clip);
+                    clipAction.play();
+                    isPaused = false;
+                    
+                    // Update UI to match clip duration
+                    const duration = result.clip.duration;
+                    const slider = document.getElementById('inp-timeline');
+                    slider.max = duration;
+                    slider.value = 0;
+                    slider.disabled = false;
+                    
+                    document.getElementById('duration-display').innerText = duration.toFixed(2) + 's';
+                    document.getElementById('btn-toggle-anim').disabled = false;
+                    document.getElementById('btn-toggle-anim').innerText = "Pause Animation";
+                    
+                    // Ensure we update bone helpers every frame of animation
+                    // We will add this in the animate loop
+                }
+
+
+                // Create Visual Helpers using the extracted list of bones
+                createBoneHelpers(bonesList);
+
+                // Add the root bone to the scene so transformations work
+                // If state.bvhRoot is already in the scene (e.g. via parent), scene.add handles it gracefully 
+                // but usually we need to add the top level.
+                if (state.bvhRoot.parent !== scene) {
+                    scene.add(state.bvhRoot);
+                }
+
+                // Force an update to ensure matrices are calculated before first render
+                state.bvhRoot.updateMatrixWorld(true);
+                
+                setLoading(false);
+                showToast("BVH Loaded. Drag bones to fit.");
+                updateUI();
+
+                /*state.bvhRoot = result.skeleton; // Result from BVHLoader is a basic Object3D hierarchy
+                
+                // Convert BVH Object3D hierarchy to Three.js Skeleton structure
+                // The BVH loader gives us pose matrices, but we need Bones with inverseBindMatrices eventually.
+                // For now, we create Bones from the structure.
+                const bones = [];
+                
+                state.bvhRoot.traverse((node) => {
+                    if (node.isBone) {
+                        // Ensure it has a name
+                        if(!node.name) node.name = "Bone_" + node.id;
+                        bones.push(node);
+                    }
+                });
+
+                state.skeleton = new THREE.Skeleton(bones);
+
+                // Create Visual Helpers
+                createBoneHelpers(state.skeleton.bones);
+
+                // Initially position the rig root at 0,0,0. 
+                // Note: The user will need to scale/move this to fit the mesh manually.
+                state.skeleton.bones[0].position.y = 1; // Rough guess
+                state.skeleton.bones[0].updateMatrixWorld();
+
+                scene.add(state.bvhRoot); // Add the root to scene so bones update
+                setLoading(false);
+                showToast("BVH Loaded. Drag bones to fit.");
+                updateUI();*/
+            });
+        });
+
+        function clearBoneHelpers() {
+            state.boneHelpers.forEach(h => {
+                scene.remove(h.sphere);
+                scene.remove(h.line);
+            });
+            state.boneHelpers = [];
+        }
+
+        /*function createBoneHelpers(bones) {
+            const sphereGeo = new THREE.SphereGeometry(0.03, 16, 16);
+            const sphereMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, depthTest: false, transparent: true, opacity: 0.8 });
+            const lineMat = new THREE.LineBasicMaterial({ color: 0x00ff00, depthTest: false, transparent: true, opacity: 0.5 });
+
+            bones.forEach(bone => {
+                const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+                sphere.renderOrder = 999;
+                sphere.userData.isBoneHelper = true;
+                scene.add(sphere);
+
+                const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,1,0)]); // Placeholder
+                const line = new THREE.Line(lineGeo, lineMat);
+                line.renderOrder = 999;
+                scene.add(line);
+
+                state.boneHelpers.push({ bone, sphere, line });
+            });
+            updateBoneHelpers();
+        }*/
+
+        // Updated to accept an array of bones instead of traversing a root
+        function createBoneHelpers(bones) {
+            const sphereGeo = new THREE.SphereGeometry(0.03, 16, 16);
+            const sphereMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, depthTest: false, transparent: true, opacity: 0.8 });
+            const lineMat = new THREE.LineBasicMaterial({ color: 0x00ff00, depthTest: false, transparent: true, opacity: 0.5 });
+
+            // Use a Set for quick lookup of valid bones
+            const boneSet = new Set(bones);
+
+            bones.forEach(bone => {
+                const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+                sphere.renderOrder = 999;
+                sphere.userData.isBoneHelper = true;
+                scene.add(sphere);
+
+                const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,1,0)]);
+                const line = new THREE.Line(lineGeo, lineMat);
+                line.renderOrder = 999;
+                scene.add(line);
+
+                state.boneHelpers.push({ bone, sphere, line });
+            });
+            updateBoneHelpers();
+        }
+
+        function updateBoneHelpers() {
+            state.boneHelpers.forEach(h => {
+                // Sphere follows bone world position
+                h.sphere.position.copy(h.bone.getWorldPosition(new THREE.Vector3()));
+
+                // Line goes from bone to its parent (if exists)
+                if (h.bone.parent && h.bone.parent.isBone) {
+                    const parentPos = h.bone.parent.getWorldPosition(new THREE.Vector3());
+                    const bonePos = h.bone.getWorldPosition(new THREE.Vector3());
+                    
+                    const positions = new Float32Array([
+                        parentPos.x, parentPos.y, parentPos.z,
+                        bonePos.x, bonePos.y, bonePos.z
+                    ]);
+                    h.line.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                    h.line.visible = true;
+                } else {
+                    h.line.visible = false;
+                }
+            });
+        }
+
+        // Reset Pose Logic
+        document.getElementById('btn-reset-pose').addEventListener('click', () => {
+            if (!state.bvhRoot) return;
+            // BVHLoader stores initial pose in userData? Not exactly.
+            // The simplest way to "reset" a complex rig without storing state is to reload the file, 
+            // OR we assume that the user wants to reset to a T-pose which is standard.
+            // Since we don't have the original T-pose matrices stored in this simple app easily, 
+            // we will just reset rotations to identity and positions to a vertical stack (simple heuristic).
+            
+            // NOTE: In a pro tool, we would store the initial matrices upon load.
+            // Here, let's just warn the user or try a basic reset.
+            // Actually, let's do a vertical reset.
+            let currentY = 1.0;
+            state.skeleton.bones[0].position.set(0, currentY, 0);
+            state.skeleton.bones[0].rotation.set(0,0,0);
+            
+            // Very naive reset: Stack them up Y axis based on hierarchy depth?
+            // This breaks complex rigs. 
+            // Better approach: Prompt user to re-load or just let them Undo (not implemented).
+            // Instead, let's just zero out rotations and keep positions.
+            state.skeleton.bones.forEach(b => {
+                b.rotation.set(0,0,0);
+            });
+            state.skeleton.bones[0].updateMatrixWorld(true);
+            updateBoneHelpers();
+            showToast("Rotations reset (Positions kept)");
+        });
+
+
+        // 3. Binding / Skinning Logic
+        document.getElementById('btn-bind').addEventListener('click', () => {
+            if (!state.mesh || !state.skeleton) return;
+
+            setLoading(true);
+            // Allow UI to update before heavy calc
+            setTimeout(() => {
+                performAutoSkin();
+                setLoading(false);
+            }, 100);
+        });
+
+        function performAutoSkin() {
+            // --- FIX: Find the actual Mesh inside the loaded Scene/Group ---
+            let targetMesh = null;
+            state.mesh.traverse((child) => {
+                if (child.isMesh && !targetMesh) {
+                    targetMesh = child; // Grab the first mesh found
+                }
+            });
+
+            if (!targetMesh) {
+                showToast("Error: No Mesh found in the loaded file.");
+                return;
+            }
+            const geometry = targetMesh.geometry.clone();
+
+            //const geometry = state.mesh.geometry.clone();
+            // Ensure geometry is in position attribute format
+            if (!geometry.attributes.position) {
+                showToast("Geometry has no positions!");
+                return;
+            }
+
+            const vertex = new THREE.Vector3();
+            const bonePosition = new THREE.Vector3();
+            const skinIndex = [];
+            const skinWeight = [];
+
+            const positions = geometry.attributes.position;
+            const count = positions.count;
+
+            // Prepare matrices
+            state.skeleton.calculateInverses();
+
+            // --- Geometric Binding Algorithm ---
+            // For each vertex, find distance to all bones.
+            // Weight = 1 / distance^2 (or Gaussian)
+            // Normalize weights.
+
+            console.log("Starting skin calculation...");
+            const startTime = performance.now();
+
+            // We limit the number of influencing bones to keep performance decent
+            // Typically 4 per vertex (standard shader limit)
+            const influencesPerVertex = 4;
+            
+            // Temp array for sorting weights for a single vertex
+            const boneDistances = [];
+
+            for (let i = 0; i < count; i++) {
+                vertex.fromBufferAttribute(positions, i);
+                // Transform local vertex to world space to match bone world positions
+                // (Assuming mesh is at 0,0,0 with no rotation, otherwise apply mesh matrix)
+                vertex.applyMatrix4(state.mesh.matrixWorld);
+
+                boneDistances.length = 0; // Clear
+
+                // Check all bones
+                for (let j = 0; j < state.skeleton.bones.length; j++) {
+                    const bone = state.skeleton.bones[j];
+                    bonePosition.setFromMatrixPosition(bone.matrixWorld);
+                    
+                    const dist = vertex.distanceTo(bonePosition);
+
+                    // Optimization: ignore bones that are way too far (optional, but strict radius is user defined)
+                    // Here we just compute raw weight first
+                    
+                    let w = 0;
+                    if (state.gaussian) {
+                        // Gaussian function: e^(-dist^2 / 2*sigma^2)
+                        // Using influenceRadius as sigma proxy
+                        if (dist < state.influenceRadius * 3) { // Cutoff for performance
+                           w = Math.exp(-(dist * dist) / (2 * state.influenceRadius * state.influenceRadius));
+                        }
+                    } else {
+                        // Linear falloff
+                        if (dist < state.influenceRadius) {
+                            w = 1.0 - (dist / state.influenceRadius);
+                        }
+                    }
+
+                    if (w > 0.0001) {
+                        boneDistances.push({ index: j, weight: w });
+                    }
+                }
+
+                // Sort by weight descending
+                boneDistances.sort((a, b) => b.weight - a.weight);
+
+                // Take top N
+                const chosen = boneDistances.slice(0, influencesPerVertex);
+
+                // Normalize weights
+                let sum = 0;
+                for (let k = 0; k < chosen.length; k++) sum += chosen[k].weight;
+                
+                if (sum === 0) {
+                    // Fallback: assign to root or closest bone? 
+                    // For now, assign to root (index 0) with weight 0 (vertex collapses) or keep 1 if we found none?
+                    // If sum is 0, the vertex is far from everything.
+                    // Let's assign weight 1 to root to prevent errors, though vertex will snap to root.
+                    skinIndex.push(0, 0, 0, 0);
+                    skinWeight.push(0, 0, 0, 0); 
+                } else {
+                    for (let k = 0; k < influencesPerVertex; k++) {
+                        if (k < chosen.length) {
+                            skinIndex.push(chosen[k].index);
+                            skinWeight.push(chosen[k].weight / sum);
+                        } else {
+                            skinIndex.push(0);
+                            skinWeight.push(0);
+                        }
+                    }
+                }
+            }
+
+            geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndex, 4));
+            geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinWeight, 4));
+
+            // Create SkinnedMesh
+            // Get original material
+            let material;
+            state.mesh.traverse(c => { if(c.isMesh) material = c.material; });
+            
+            const skinnedMesh = new THREE.SkinnedMesh(geometry, material);
+            skinnedMesh.add(state.skeleton.bones[0]); // Add root bone
+            skinnedMesh.bind(state.skeleton, new THREE.Matrix4()); // Bind identity (mesh is in bind pose relative to bones currently)
+
+            // Transfer mesh transform to skinned mesh transform
+            skinnedMesh.position.copy(state.mesh.position);
+            skinnedMesh.rotation.copy(state.mesh.rotation);
+            skinnedMesh.scale.copy(state.mesh.scale);
+
+            // Hide original, show new
+            state.mesh.visible = false;
+            clearBoneHelpers(); // Remove helpers (or keep them? Usually hide them to see result)
+            // Let's keep helpers but make them faint to verify skinning
+            state.boneHelpers.forEach(h => {
+                h.line.visible = true;
+                h.sphere.visible = true;
+            });
+
+            state.skinnedMesh = skinnedMesh;
+            scene.add(skinnedMesh);
+            state.isRigged = true;
+            
+            updateUI();
+            showToast("Skinning Complete!");
+            console.log(`Skinning took ${(performance.now() - startTime).toFixed(1)}ms`);
+        }
+
+        // 4. Export Logic
+        document.getElementById('btn-export').addEventListener('click', () => {
+            if (!state.skinnedMesh) return;
+
+            setLoading(true);
+            const exporter = new GLTFExporter();
+            
+            // We need to export the skinnedMesh. 
+            // SkinnedMesh contains the geometry and the skeleton reference via its bones.
+            
+            exporter.parse(
+                state.skinnedMesh,
+                (gltf) => {
+                    const output = JSON.stringify(gltf, null, 2);
+                    const blob = new Blob([output], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    
+                    // We actually want a binary .glb usually
+                    // Three.js exporter supports 'binary' option
+                    saveArrayBuffer(gltf, 'rigged_model.glb');
+                    setLoading(false);
+                    showToast("Export Successful");
+                },
+                (error) => {
+                    console.error(error);
+                    setLoading(false);
+                    showToast("Export Failed");
+                },
+                { binary: true }
+            );
+        });
+
+        function saveArrayBuffer(buffer, filename) {
+            const blob = new Blob([buffer], { type: 'application/octet-stream' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            link.click();
+        }
+
+        // --- UI Updates ---
+        const inpRadius = document.getElementById('inp-radius');
+        const valRadius = document.getElementById('val-radius');
+        const inpGaussian = document.getElementById('inp-gaussian');
+
+        inpRadius.addEventListener('input', (e) => {
+            state.influenceRadius = parseFloat(e.target.value);
+            valRadius.innerText = state.influenceRadius;
+        });
+        inpGaussian.addEventListener('change', (e) => {
+            state.gaussian = e.target.checked;
+        });
+
+
+        // --- Animation Controls ---
+
+        const btnToggleAnim = document.getElementById('btn-toggle-anim');
+        const sliderTimeline = document.getElementById('inp-timeline');
+
+        btnToggleAnim.addEventListener('click', () => {
+            if (!mixer) return;
+            isPaused = !isPaused;
+            btnToggleAnim.innerText = isPaused ? "Resume Animation" : "Pause Animation";
+        });
+
+        // Scrubbing Logic
+        sliderTimeline.addEventListener('input', (e) => {
+            if (!mixer) return;
+            isDraggingSlider = true; // Stop mixer from overriding slider
+            
+            const time = parseFloat(e.target.value);
+            mixer.time = time; // Manually set time
+            
+            // Force the skinned mesh to update visually since mixer.update isn't running
+            if (state.skinnedMesh) {
+                state.skinnedMesh.update();
+            }
+            
+            document.getElementById('time-display').innerText = time.toFixed(2) + 's';
+            updateBoneHelpers(); // Force helper update
+        });
+
+        sliderTimeline.addEventListener('change', () => {
+            // When user releases slider, check if we should stay paused or resume
+            isDraggingSlider = false;
+        });
+        
+        // --- Important: Pause animation when editing bones ---
+        // If the user drags a gizmo, we pause animation so the keyframes don't snap the bone back immediately
+        transformControl.addEventListener('dragging-changed', function (event) {
+            orbit.enabled = !event.value;
+            if (event.value && mixer) {
+                // Started dragging -> Pause
+                isPaused = true;
+                btnToggleAnim.innerText = "Resume Animation";
+            }
+            // Note: We do NOT auto-resume on drop, to let the user see their manual change
+        });
+
+
+        function updateUI() {
+            const hasMesh = !!state.mesh;
+            const hasSkeleton = !!state.skeleton;
+            
+            document.getElementById('btn-reset-pose').disabled = !hasSkeleton;
+            document.getElementById('btn-bind').disabled = !(hasMesh && hasSkeleton);
+            document.getElementById('btn-export').disabled = !state.isRigged;
+        }
+
+        // Animation Loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const delta = clock.getDelta();
+
+            // Update Animation
+            if (mixer && !isPaused && !isDraggingSlider) {
+                mixer.update(delta);
+                
+                // Update UI slider to match playback
+                const time = mixer.time;
+                const slider = document.getElementById('inp-timeline');
+                // Clamp strictly to clip duration if loop is off, or let it run if loop is on
+                // (ThreeJS mixer loops by default usually)
+                if (time <= parseFloat(slider.max)) {
+                   slider.value = time;
+                }
+                document.getElementById('time-display').innerText = time.toFixed(2) + 's';
+            }
+
+            // Always update visual helpers if skeleton exists
+            if (state.skeleton) {
+                updateBoneHelpers();
+            }
+
+            orbit.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+
+    </script>
+</body>
+</html>
