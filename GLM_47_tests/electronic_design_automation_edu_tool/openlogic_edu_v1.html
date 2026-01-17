@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenLogic EDU - Advanced Digital Design Tool</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Dexie.js for IndexedDB -->
+    <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        /* Custom UI Tweaks */
+        body { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; overflow: hidden; background-color: #1e1e1e; color: #e5e5e5; }
+        
+        /* Canvas Styles */
+        #schematic-canvas {
+            background-image: 
+                linear-gradient(#2a2a2a 1px, transparent 1px),
+                linear-gradient(90deg, #2a2a2a 1px, transparent 1px);
+            background-size: 20px 20px;
+            cursor: crosshair;
+        }
+
+        .component-box {
+            position: absolute;
+            background: #2d2d2d;
+            border: 1px solid #444;
+            border-radius: 4px;
+            user-select: none;
+            cursor: grab;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-width: 60px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            transition: box-shadow 0.2s, border-color 0.2s;
+            z-index: 10;
+        }
+        .component-box:active { cursor: grabbing; }
+        .component-box.selected { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5); }
+        
+        /* Ports */
+        .port {
+            width: 10px;
+            height: 10px;
+            background: #888;
+            border-radius: 50%;
+            position: absolute;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .port:hover { background: #fff; transform: scale(1.2); }
+        .port.input { left: -6px; }
+        .port.output { right: -6px; }
+        .port.on { background: #4ade80; box-shadow: 0 0 5px #4ade80; }
+        .port.off { background: #ef4444; }
+
+        /* Timing Diagram */
+        #timing-canvas { background: #111; width: 100%; height: 100%; }
+
+        /* Editor (Monaco-ish look) */
+        .code-editor {
+            font-family: 'Fira Code', 'Courier New', monospace;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            border: 1px solid #333;
+            resize: none;
+            outline: none;
+        }
+        .code-editor:focus { border-color: #3b82f6; }
+
+        /* Scrollbars */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #1e1e1e; }
+        ::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+        
+        /* Layout helpers */
+        .flex-col-h { display: flex; flex-direction: column; height: 100%; }
+        .panel-header { background: #252526; padding: 8px 12px; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center;}
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col">
+
+    <!-- Top Navigation -->
+    <header class="bg-[#252526] h-12 flex items-center px-4 border-b border-[#333] justify-between shrink-0">
+        <div class="flex items-center gap-3">
+            <i class="fa-solid fa-microchip text-blue-500 text-lg"></i>
+            <h1 class="font-bold text-sm tracking-wide">OpenLogic <span class="text-blue-500">EDU</span></h1>
+            <div class="h-4 w-[1px] bg-gray-600 mx-2"></div>
+            <span class="text-xs text-gray-400">Verilog/VHDL Educational Simulation</span>
+        </div>
+        <div class="flex items-center gap-2">
+            <button onclick="app.saveProject()" class="px-3 py-1 bg-[#333] hover:bg-[#444] text-xs rounded border border-[#555] transition">
+                <i class="fa-solid fa-save mr-1"></i> Save
+            </button>
+            <button onclick="app.loadProject()" class="px-3 py-1 bg-[#333] hover:bg-[#444] text-xs rounded border border-[#555] transition">
+                <i class="fa-solid fa-folder-open mr-1"></i> Load
+            </button>
+            <div class="h-4 w-[1px] bg-gray-600 mx-2"></div>
+            <button onclick="app.simulation.toggle()" id="sim-btn" class="px-3 py-1 bg-green-900 hover:bg-green-800 text-green-100 text-xs rounded border border-green-700 transition font-bold">
+                <i class="fa-solid fa-play mr-1"></i> RUN
+            </button>
+            <button onclick="app.simulation.step()" class="px-3 py-1 bg-[#333] hover:bg-[#444] text-xs rounded border border-[#555] transition">
+                <i class="fa-solid fa-forward-step"></i>
+            </button>
+            <button onclick="app.simulation.reset()" class="px-3 py-1 bg-[#333] hover:bg-[#444] text-xs rounded border border-[#555] transition">
+                <i class="fa-solid fa-rotate-left"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="flex-1 flex overflow-hidden">
+        
+        <!-- Left Sidebar: Components -->
+        <aside class="w-64 bg-[#252526] border-r border-[#333] flex flex-col shrink-0 z-20">
+            <div class="panel-header">
+                <span>Component Library</span>
+            </div>
+            <div class="overflow-y-auto p-2 flex-1 space-y-4">
+                <!-- IO -->
+                <div>
+                    <h3 class="text-xs font-bold text-gray-500 mb-2 px-1">Input / Output</h3>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div draggable="true" ondragstart="app.dragStart(event, 'INPUT')" class="bg-[#333] p-2 text-center rounded text-xs hover:bg-[#444] cursor-grab border border-[#444]">Input (Switch)</div>
+                        <div draggable="true" ondragstart="app.dragStart(event, 'CLOCK')" class="bg-[#333] p-2 text-center rounded text-xs hover:bg-[#444] cursor-grab border border-[#444]">Clock</div>
+                        <div draggable="true" ondragstart="app.dragStart(event, 'OUTPUT')" class="bg-[#333] p-2 text-center rounded text-xs hover:bg-[#444] cursor-grab border border-[#444]">Output (LED)</div>
+                    </div>
+                </div>
+                <!-- Gates -->
+                <div>
+                    <h3 class="text-xs font-bold text-gray-500 mb-2 px-1">Logic Gates</h3>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div draggable="true" ondragstart="app.dragStart(event, 'AND')" class="bg-[#333] p-2 text-center rounded text-xs hover:bg-[#444] cursor-grab border border-[#444]">AND</div>
+                        <div draggable="true" ondragstart="app.dragStart(event, 'OR')" class="bg-[#333] p-2 text-center rounded text-xs hover:bg-[#444] cursor-grab border border-[#444]">OR</div>
+                        <div draggable="true" ondragstart="app.dragStart(event, 'NOT')" class="bg-[#333] p-2 text-center rounded text-xs hover:bg-[#444] cursor-grab border border-[#444]">NOT</div>
+                        <div draggable="true" ondragstart="app.dragStart(event, 'NAND')" class="bg-[#333] p-2 text-center rounded text-xs hover:bg-[#444] cursor-grab border border-[#444]">NAND</div>
+                        <div draggable="true" ondragstart="app.dragStart(event, 'XOR')" class="bg-[#333] p-2 text-center rounded text-xs hover:bg-[#444] cursor-grab border border-[#444]">XOR</div>
+                    </div>
+                </div>
+                <!-- Sequential -->
+                <div>
+                    <h3 class="text-xs font-bold text-gray-500 mb-2 px-1">Sequential Logic</h3>
+                    <div class="grid grid-cols-1 gap-2">
+                        <div draggable="true" ondragstart="app.dragStart(event, 'D_FF')" class="bg-[#333] p-2 text-center rounded text-xs hover:bg-[#444] cursor-grab border border-[#444]">D Flip-Flop</div>
+                    </div>
+                </div>
+                <!-- Custom -->
+                <div>
+                    <h3 class="text-xs font-bold text-blue-500 mb-2 px-1 flex justify-between">
+                        <span>HDL Modules</span>
+                        <i class="fa-solid fa-plus cursor-pointer hover:text-white" onclick="app.ui.openHdlEditor()" title="Create New HDL Module"></i>
+                    </h3>
+                    <div id="custom-components-list" class="space-y-1">
+                        <div class="text-xs text-gray-500 italic px-1">No custom modules.</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Center: Schematic Canvas -->
+        <section class="flex-1 relative bg-[#1e1e1e] overflow-hidden" id="canvas-container">
+            <canvas id="schematic-canvas" class="absolute top-0 left-0 z-0"></canvas>
+            <div id="components-layer" class="absolute top-0 left-0 w-full h-full z-10 overflow-hidden"></div>
+            
+            <!-- Toast Notification -->
+            <div id="toast" class="absolute bottom-4 right-4 bg-blue-600 text-white px-4 py-2 rounded shadow-lg transform translate-y-20 transition-transform duration-300 z-50 text-sm">
+                Notification
+            </div>
+        </section>
+
+        <!-- Right Sidebar: Analysis & Properties -->
+        <aside class="w-80 bg-[#252526] border-l border-[#333] flex flex-col shrink-0 z-20">
+            <!-- Tabs -->
+            <div class="flex border-b border-[#333]">
+                <button onclick="app.ui.switchTab('timing')" id="tab-btn-timing" class="flex-1 py-2 text-xs font-bold text-white bg-[#333] border-b-2 border-blue-500">Timing</button>
+                <button onclick="app.ui.switchTab('rtl')" id="tab-btn-rtl" class="flex-1 py-2 text-xs font-bold text-gray-400 hover:text-white">RTL/Netlist</button>
+            </div>
+
+            <!-- Tab Content: Timing -->
+            <div id="tab-timing" class="flex-1 flex flex-col min-h-0">
+                <div class="panel-header">
+                    <span>Signal Analysis</span>
+                    <span class="text-[10px] text-gray-400">Real-time</span>
+                </div>
+                <div class="flex-1 relative bg-[#111]">
+                    <canvas id="timing-canvas"></canvas>
+                </div>
+                <div class="p-2 border-t border-[#333] text-[10px] text-gray-500 flex justify-between">
+                    <span>Scale: <span id="time-scale">100ms</span>/tick</span>
+                    <button onclick="app.simulation.clearHistory()" class="hover:text-white">Clear</button>
+                </div>
+            </div>
+
+            <!-- Tab Content: RTL -->
+            <div id="tab-rtl" class="flex-1 hidden flex-col min-h-0 overflow-hidden">
+                <div class="panel-header">RTL Representation</div>
+                <div class="p-4 text-xs text-gray-400">
+                    <p class="mb-2">Hierarchical view of active components and connectivity.</p>
+                </div>
+                <div id="rtl-tree" class="overflow-y-auto p-2 font-mono text-xs space-y-2 text-green-400">
+                    <!-- Populated via JS -->
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <!-- HDL Editor Modal -->
+    <div id="hdl-modal" class="fixed inset-0 bg-black/80 z-50 hidden flex items-center justify-center">
+        <div class="bg-[#252526] border border-[#444] rounded w-[600px] shadow-2xl flex flex-col max-h-[90vh]">
+            <div class="p-3 border-b border-[#333] flex justify-between items-center">
+                <h3 class="font-bold text-sm"><i class="fa-solid fa-code mr-2"></i>Define Custom Component</h3>
+                <button onclick="app.ui.closeHdlEditor()" class="text-gray-400 hover:text-white"><i class="fa-solid fa-times"></i></button>
+            </div>
+            <div class="p-4 space-y-3 flex-1 overflow-y-auto">
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 mb-1">Module Name</label>
+                    <input type="text" id="hdle-name" class="w-full bg-[#1e1e1e] border border-[#444] rounded px-2 py-1 text-sm text-white focus:border-blue-500 outline-none" placeholder="e.g. MyAdder">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 mb-1">Inputs (comma separated)</label>
+                    <input type="text" id="hdle-inputs" class="w-full bg-[#1e1e1e] border border-[#444] rounded px-2 py-1 text-sm text-white focus:border-blue-500 outline-none" placeholder="A, B, Cin">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 mb-1">Outputs (comma separated)</label>
+                    <input type="text" id="hdle-outputs" class="w-full bg-[#1e1e1e] border border-[#444] rounded px-2 py-1 text-sm text-white focus:border-blue-500 outline-none" placeholder="Sum, Cout">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 mb-1">Logic (JavaScript body)</label>
+                    <p class="text-[10px] text-gray-500 mb-1">Use variables matching input/output names. Return object with output values.</p>
+                    <textarea id="hdle-code" class="code-editor w-full h-40 rounded p-2 text-sm" spellcheck="false">// Example: Half Adder
+const sum = A ^ B;
+const carry = A & B;
+
+return { 
+    Sum: sum, 
+    Cout: carry 
+};</textarea>
+                </div>
+            </div>
+            <div class="p-3 border-t border-[#333] flex justify-end gap-2">
+                <button onclick="app.ui.closeHdlEditor()" class="px-3 py-1.5 text-xs text-gray-300 hover:text-white">Cancel</button>
+                <button onclick="app.createHdlModule()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs rounded font-bold">Compile & Add</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+/**
+ * OpenLogic EDU - Core Engine
+ * 
+ * Architecture:
+ * 1. Store: Holds component definitions (Library).
+ * 2. Circuit: Holds instances of components, wires, and simulation state.
+ * 3. Renderer: Handles Canvas drawing and DOM manipulation.
+ * 4. Simulation: Event-driven logic engine.
+ * 5. Storage: Dexie wrapper.
+ */
+
+// --- Database (Dexie) ---
+const db = new Dexie('OpenLogicDB');
+db.version(1).stores({
+    projects: '++id, name, date, data'
+});
+
+// --- Component Definitions (The "Library") ---
+const LIBRARY = {
+    'INPUT': { name: 'Input', inputs: [], outputs: ['out'], type: 'io', config: {toggle: true} },
+    'OUTPUT': { name: 'Output', inputs: ['in'], outputs: [], type: 'io' },
+    'CLOCK': { name: 'Clock', inputs: [], outputs: ['out'], type: 'io', config: {period: 1000} },
+    'AND': { name: 'AND', inputs: ['a', 'b'], outputs: ['out'], type: 'gate', logic: (i) => ({out: i.a && i.b}) },
+    'OR': { name: 'OR', inputs: ['a', 'b'], outputs: ['out'], type: 'gate', logic: (i) => ({out: i.a || i.b}) },
+    'NOT': { name: 'NOT', inputs: ['in'], outputs: ['out'], type: 'gate', logic: (i) => ({out: !i.in}) },
+    'NAND': { name: 'NAND', inputs: ['a', 'b'], outputs: ['out'], type: 'gate', logic: (i) => ({out: !(i.a && i.b)}) },
+    'XOR': { name: 'XOR', inputs: ['a', 'b'], outputs: ['out'], type: 'gate', logic: (i) => ({out: (i.a ? 1 : 0) ^ (i.b ? 1 : 0)}) },
+    'D_FF': { name: 'D Flip-Flop', inputs: ['d', 'clk'], outputs: ['q', 'qbar'], type: 'sequential', state: { q: 0 }, logic: (i, s) => {
+        // Edge detection handled by engine update loop usually, here simplified:
+        // If clock rises, update state
+        if (i.clk && !s.prevClk) {
+            s.q = i.d;
+        }
+        s.prevClk = i.clk;
+        return { q: s.q, qbar: !s.q };
+    }}
+};
+
+// --- Utilities ---
+const uuid = () => Math.random().toString(36).substr(2, 9);
+const showToast = (msg, type='info') => {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = `absolute bottom-4 right-4 px-4 py-2 rounded shadow-lg transform transition-transform duration-300 z-50 text-sm ${type === 'error' ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'}`;
+    t.style.transform = 'translateY(0)';
+    setTimeout(() => t.style.transform = 'translateY(20px)', 3000);
+};
+
+// --- Application Class ---
+class App {
+    constructor() {
+        this.components = [];
+        this.wires = [];
+        this.customModules = {}; // Store user-defined HDL
+        this.isRunning = false;
+        this.tickCount = 0;
+        this.timeScale = 500; // ms per tick
+        
+        // DOM References
+        this.container = document.getElementById('canvas-container');
+        this.canvas = document.getElementById('schematic-canvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.compLayer = document.getElementById('components-layer');
+        
+        // Interaction State
+        this.dragState = null;
+        this.wireStart = null;
+        this.tempWire = null;
+        
+        // Engine
+        this.engine = new CircuitEngine(this);
+        this.ui = new UI(this);
+        this.simulation = new Simulation(this);
+
+        this.resizeCanvas();
+        window.addEventListener('resize', () => this.resizeCanvas());
+
+        this.initInteraction();
+        this.renderLoop();
+    }
+
+    resizeCanvas() {
+        this.canvas.width = this.container.clientWidth;
+        this.canvas.height = this.container.clientHeight;
+        this.ui.draw();
+    }
+
+    // --- Component Management ---
+    addComponent(type, x, y, id = null) {
+        const def = LIBRARY[type] || this.customModules[type];
+        if (!def) return;
+
+        const comp = {
+            id: id || uuid(),
+            type: type,
+            def: def,
+            x: x,
+            y: y,
+            state: def.state ? {...def.state} : {},
+            inputs: {},
+            outputs: {},
+            instanceOfCustom: !!this.customModules[type]
+        };
+
+        // Initialize ports
+        def.inputs.forEach(name => comp.inputs[name] = false);
+        def.outputs.forEach(name => comp.outputs[name] = false);
+
+        this.components.push(comp);
+        this.ui.renderComponent(comp);
+        this.simulation.recordState(); // Snapshot for timing
+        return comp;
+    }
+
+    removeComponent(id) {
+        this.components = this.components.filter(c => c.id !== id);
+        this.wires = this.wires.filter(w => w.from.compId !== id && w.to.compId !== id);
+        // DOM removal handled by re-render or specific cleanup
+        document.getElementById(`comp-${id}`)?.remove();
+        this.ui.draw();
+    }
+
+    // --- Wire Management ---
+    addWire(fromCompId, fromPort, toCompId, toPort) {
+        // Validate types (Input -> Output connection only)
+        const fromComp = this.components.find(c => c.id === fromCompId);
+        const toComp = this.components.find(c => c.id === toCompId);
+        
+        if (!fromComp || !toComp) return;
+        
+        // Source must be output, Target must be input
+        if (!fromComp.def.outputs.includes(fromPort)) return;
+        if (!toComp.def.inputs.includes(toPort)) return;
+
+        // Remove existing wire to same input (single driver rule for simplicity)
+        this.wires = this.wires.filter(w => !(w.to.compId === toCompId && w.to.port === toPort));
+
+        this.wires.push({
+            id: uuid(),
+            from: { compId: fromCompId, port: fromPort },
+            to: { compId: toCompId, port: toPort },
+            state: false
+        });
+
+        this.engine.propagate(); // Immediate update
+        this.ui.draw();
+    }
+
+    // --- Interaction ---
+    dragStart(e, type) {
+        e.dataTransfer.setData('type', type);
+    }
+
+    initInteraction() {
+        // Drop on Canvas
+        this.container.addEventListener('dragover', e => e.preventDefault());
+        this.container.addEventListener('drop', e => {
+            e.preventDefault();
+            const type = e.dataTransfer.getData('type');
+            const rect = this.container.getBoundingClientRect();
+            this.addComponent(type, e.clientX - rect.left, e.clientY - rect.top);
+        });
+
+        // Wiring & Dragging logic delegated to UI via Event Delegation on container
+        // But specific listeners are attached to elements created by UI.
+        
+        // Global mouse move for temp wire
+        this.container.addEventListener('mousemove', e => {
+            if (this.wireStart) {
+                const rect = this.container.getBoundingClientRect();
+                this.tempWire = {
+                    x: e.clientX - rect.left,
+                    y: e.clientY - rect.top
+                };
+                this.ui.draw();
+            }
+        });
+
+        // Global mouse up
+        this.container.addEventListener('mouseup', e => {
+            if (this.wireStart) {
+                this.wireStart = null;
+                this.tempWire = null;
+                this.ui.draw();
+            }
+            if (this.dragState) {
+                this.dragState = null;
+            }
+        });
+    }
+
+    // --- HDL ---
+    openHdlEditor() { document.getElementById('hdl-modal').classList.remove('hidden'); }
+    closeHdlEditor() { document.getElementById('hdl-modal').classList.add('hidden'); }
+    
+    createHdlModule() {
+        const name = document.getElementById('hdle-name').value.trim();
+        const inputsStr = document.getElementById('hdle-inputs').value;
+        const outputsStr = document.getElementById('hdle-outputs').value;
+        const code = document.getElementById('hdle-code').value;
+
+        if (!name) { showToast("Module name required", "error"); return; }
+        
+        const inputs = inputsStr.split(',').map(s => s.trim()).filter(s => s);
+        const outputs = outputsStr.split(',').map(s => s.trim()).filter(s => s);
+
+        // Security: Creating a function from string. In prod, use sandbox.
+        let logicFn;
+        try {
+            logicFn = new Function('inputs', 'state', code);
+            // Test run
+            logicFn(inputs.reduce((acc, i) => (acc[i]=false, acc), {}), {});
+        } catch (err) {
+            showToast("Syntax Error in Logic: " + err.message, "error");
+            return;
+        }
+
+        this.customModules[name] = {
+            name: name,
+            inputs: inputs,
+            outputs: outputs,
+            type: 'custom',
+            logic: logicFn
+        };
+
+        this.ui.updateCustomComponentsList();
+        this.closeHdlEditor();
+        showToast(`Module ${name} created successfully!`);
+        
+        // Reset form
+        document.getElementById('hdle-name').value = '';
+        document.getElementById('hdle-code').value = '';
+    }
+
+    // --- Persistence ---
+    async saveProject() {
+        const data = {
+            components: this.components,
+            wires: this.wires,
+            customModules: this.customModules
+        };
+        try {
+            await db.projects.add({
+                name: 'Project ' + new Date().toLocaleTimeString(),
+                date: new Date(),
+                data: JSON.stringify(data)
+            });
+            showToast("Project saved locally.");
+        } catch(e) {
+            showToast("Save failed: " + e.message, "error");
+        }
+    }
+
+    async loadProject() {
+        try {
+            const all = await db.projects.reverse().limit(1).toArray();
+            if (all.length === 0) { showToast("No saved projects found.", "error"); return; }
+            const record = all[0];
+            const data = JSON.parse(record.data);
+            
+            this.clear();
+            this.customModules = data.customModules || {};
+            this.ui.updateCustomComponentsList();
+            
+            data.components.forEach(c => {
+                this.addComponent(c.type, c.x, c.y, c.id);
+                // Restore state
+                const newC = this.components.find(x => x.id === c.id);
+                if(newC) newC.state = c.state;
+            });
+            this.wires = data.wires;
+            this.engine.propagate();
+            this.ui.draw();
+            showToast("Project loaded.");
+        } catch(e) {
+            showToast("Load failed: " + e.message, "error");
+        }
+    }
+
+    clear() {
+        this.components.forEach(c => document.getElementById(`comp-${c.id}`)?.remove());
+        this.components = [];
+        this.wires = [];
+    }
+
+    renderLoop() {
+        if (this.isRunning) {
+            this.simulation.tick();
+        }
+        requestAnimationFrame(() => this.renderLoop());
+    }
+}
+
+// --- Circuit Engine ---
+class CircuitEngine {
+    constructor(app) {
+        this.app = app;
+    }
+
+    propagate() {
+        // Simple topological-ish evaluation. 
+        // Since we support loops (sequential), we iterate until stable or max depth.
+        // For this tool, we'll run multiple passes to settle combinational logic within one tick.
+        
+        let stable = false;
+        let iterations = 0;
+        const maxIterations = 50; // Prevent infinite hang in combinational loops
+
+        while (!stable && iterations < maxIterations) {
+            stable = true;
+            
+            // 1. Transfer wire states
+            this.app.wires.forEach(wire => {
+                const sourceComp = this.app.components.find(c => c.id === wire.from.compId);
+                const newVal = sourceComp.outputs[wire.from.port];
+                if (wire.state !== newVal) {
+                    wire.state = newVal;
+                    // Update target component input
+                    const targetComp = this.app.components.find(c => c.id === wire.to.compId);
+                    if (targetComp.inputs[wire.to.port] !== newVal) {
+                        targetComp.inputs[wire.to.port] = newVal;
+                        stable = false; // Change detected, need to re-evaluate
+                    }
+                }
+            });
+
+            // 2. Evaluate Components
+            this.app.components.forEach(comp => {
+                const oldOutputs = {...comp.outputs};
+                let newOutputs = {};
+
+                // If custom or standard gate
+                if (comp.def.logic) {
+                    const result = comp.def.logic(comp.inputs, comp.state);
+                    newOutputs = result;
+                } 
+                // Special IO handling
+                else if (comp.def.type === 'io') {
+                    if (comp.def.config && comp.def.config.toggle) {
+                        // Input switch state is handled by UI click
+                        newOutputs.out = comp.state.value; 
+                    } else if (comp.type === 'CLOCK') {
+                        newOutputs.out = comp.state.value;
+                    }
+                    // Outputs just display inputs, logic is external
+                }
+
+                // Apply changes
+                for (let key in newOutputs) {
+                    if (comp.outputs[key] !== newOutputs[key]) {
+                        comp.outputs[key] = newOutputs[key];
+                        stable = false;
+                    }
+                }
+            });
+            iterations++;
+        }
+
+        // Update UI visuals
+        this.app.ui.updateComponentVisuals();
+    }
+}
+
+// --- Simulation Controller ---
+class Simulation {
+    constructor(app) {
+        this.app = app;
+        this.history = []; // For timing diagram
+        this.maxHistory = 100;
+    }
+
+    toggle() {
+        this.app.isRunning = !this.app.isRunning;
+        const btn = document.getElementById('sim-btn');
+        if (this.app.isRunning) {
+            btn.innerHTML = '<i class="fa-solid fa-pause mr-1"></i> PAUSE';
+            btn.classList.replace('bg-green-900', 'bg-yellow-900');
+            btn.classList.replace('border-green-700', 'border-yellow-700');
+            btn.classList.replace('text-green-100', 'text-yellow-100');
+        } else {
+            btn.innerHTML = '<i class="fa-solid fa-play mr-1"></i> RUN';
+            btn.classList.replace('bg-yellow-900', 'bg-green-900');
+            btn.classList.replace('border-yellow-700', 'border-green-700');
+            btn.classList.replace('text-yellow-100', 'text-green-100');
+        }
+    }
+
+    tick() {
+        const now = Date.now();
+        if (!this.lastTime) this.lastTime = now;
+        if (now - this.lastTime > this.app.timeScale) {
+            this.lastTime = now;
+            this.app.tickCount++;
+
+            // Update Clocks
+            this.app.components.filter(c => c.type === 'CLOCK').forEach(c => {
+                c.state.value = !c.state.value;
+            });
+
+            this.app.engine.propagate();
+            this.recordState();
+        }
+    }
+
+    step() {
+        this.app.tickCount++;
+        this.app.components.filter(c => c.type === 'CLOCK').forEach(c => {
+            c.state.value = !c.state.value;
+        });
+        this.app.engine.propagate();
+        this.recordState();
+    }
+
+    reset() {
+        this.app.components.forEach(c => {
+            if (c.type === 'INPUT' || c.type === 'CLOCK') c.state.value = false;
+            if (c.def.state) c.state = {...c.def.state}; // Reset internal state like FFs
+        });
+        this.app.tickCount = 0;
+        this.history = [];
+        this.app.engine.propagate();
+        this.recordState();
+        this.app.ui.drawTiming();
+    }
+
+    recordState() {
+        // Collect signals of interest (Outputs of all components + specific Inputs if tracked)
+        // For simplicity in this tool, we track all outputs that have a connected wire or are top-level IO
+        const frame = { time: this.app.tickCount, signals: {} };
+        
+        this.app.components.forEach(c => {
+            // Track Inputs (Switches)
+            if (c.type === 'INPUT') {
+                frame.signals[`Input_${c.id.substr(0,4)}`] = c.state.value ? 1 : 0;
+            }
+            // Track all named outputs
+            c.def.outputs.forEach(oName => {
+                // Create a readable name
+                let label = `${c.def.name}_${oName}`;
+                if (c.type === 'OUTPUT') label = `OUT_${oName}`;
+                frame.signals[label] = c.outputs[oName] ? 1 : 0;
+            });
+        });
+
+        this.history.push(frame);
+        if (this.history.length > this.maxHistory) this.history.shift();
+        
+        this.app.ui.drawTiming();
+        this.app.ui.updateRtl();
+    }
+    
+    clearHistory() {
+        this.history = [];
+        this.app.ui.drawTiming();
+    }
+}
+
+// --- UI Renderer ---
+class UI {
+    constructor(app) {
+        this.app = app;
+    }
+
+    switchTab(tab) {
+        document.getElementById('tab-timing').classList.add('hidden');
+        document.getElementById('tab-rtl').classList.add('hidden');
+        document.getElementById(`tab-${tab}`).classList.remove('hidden');
+        document.getElementById(`tab-${tab}`).classList.add('flex'); // restore flex
+
+        document.getElementById('tab-btn-timing').className = "flex-1 py-2 text-xs font-bold text-gray-400 hover:text-white";
+        document.getElementById('tab-btn-rtl').className = "flex-1 py-2 text-xs font-bold text-gray-400 hover:text-white";
+        
+        document.getElementById(`tab-btn-${tab}`).className = "flex-1 py-2 text-xs font-bold text-white bg-[#333] border-b-2 border-blue-500";
+    }
+
+    draw() {
+        // Draw Wires
+        const ctx = this.app.ctx;
+        ctx.clearRect(0, 0, this.app.canvas.width, this.app.canvas.height);
+
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+
+        // Draw existing wires
+        this.app.wires.forEach(w => {
+            const start = this.getPortPos(w.from.compId, w.from.port, false); // false = output
+            const end = this.getPortPos(w.to.compId, w.to.port, true); // true = input
+            
+            if (start && end) {
+                ctx.strokeStyle = w.state ? '#4ade80' : '#525252'; // Green if high, gray if low
+                this.drawBezier(ctx, start.x, start.y, end.x, end.y);
+            }
+        });
+
+        // Draw temp wire
+        if (this.app.wireStart && this.app.tempWire) {
+            const start = this.getPortPos(this.app.wireStart.compId, this.app.wireStart.port, this.app.wireStart.isInput);
+            if (start) {
+                ctx.strokeStyle = '#60a5fa'; // Blue
+                ctx.setLineDash([5, 5]);
+                this.drawBezier(ctx, start.x, start.y, this.app.tempWire.x, this.app.tempWire.y);
+                ctx.setLineDash([]);
+            }
+        }
+    }
+
+    drawBezier(ctx, x1, y1, x2, y2) {
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        // Control points for smooth curve
+        const cp1x = x1 + (x2 - x1) / 2;
+        const cp1y = y1;
+        const cp2x = x1 + (x2 - x1) / 2;
+        const cp2y = y2;
+        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x2, y2);
+        ctx.stroke();
+    }
+
+    getPortPos(compId, portName, isInput) {
+        const el = document.getElementById(`port-${compId}-${portName}-${isInput?'in':'out'}`);
+        if (!el) return null;
+        const rect = el.getBoundingClientRect();
+        const parentRect = this.app.container.getBoundingClientRect();
+        return {
+            x: rect.left + rect.width/2 - parentRect.left,
+            y: rect.top + rect.height/2 - parentRect.top
+        };
+    }
+
+    renderComponent(comp) {
+        const div = document.createElement('div');
+        div.id = `comp-${comp.id}`;
+        div.className = 'component-box';
+        div.style.left = `${comp.x}px`;
+        div.style.top = `${comp.y}px`;
+        div.style.width = comp.def.type === 'io' ? '60px' : '80px';
+        div.style.height = Math.max(comp.def.inputs.length, comp.def.outputs.length) * 20 + 30 + 'px';
+
+        // Label
+        const label = document.createElement('div');
+        label.className = 'text-[10px] font-bold text-gray-400 pointer-events-none mb-1';
+        label.textContent = comp.def.name;
+        div.appendChild(label);
+
+        // Inputs
+        comp.def.inputs.forEach(p => {
+            const port = document.createElement('div');
+            port.id = `port-${comp.id}-${p}-in`;
+            port.className = 'port input';
+            port.title = p;
+            port.style.top = `${(comp.def.inputs.length * 20 + 30)/2 - (comp.def.inputs.indexOf(p)*20 + 10)}px`; // simplified centering
+            // Better layout:
+            port.style.top = `${20 + comp.def.inputs.indexOf(p) * 20}px`;
+            
+            port.onmousedown = (e) => {
+                e.stopPropagation();
+                this.startWire(comp.id, p, true);
+            };
+            port.onmouseup = (e) => {
+                e.stopPropagation();
+                this.endWire(comp.id, p, true);
+            };
+            div.appendChild(port);
+            
+            // Label for port
+            const plabel = document.createElement('span');
+            plabel.className = 'absolute left-1 text-[9px] text-gray-500 pointer-events-none';
+            plabel.style.top = port.style.top;
+            plabel.innerText = p;
+            div.appendChild(plabel);
+        });
+
+        // Outputs
+        comp.def.outputs.forEach(p => {
+            const port = document.createElement('div');
+            port.id = `port-${comp.id}-${p}-out`;
+            port.className = 'port output';
+            port.style.top = `${20 + comp.def.outputs.indexOf(p) * 20}px`;
+            
+            port.onmousedown = (e) => {
+                e.stopPropagation();
+                this.startWire(comp.id, p, false);
+            };
+            port.onmouseup = (e) => {
+                e.stopPropagation();
+                this.endWire(comp.id, p, false);
+            };
+            div.appendChild(port);
+
+            // Visual State inside box (for Inputs/Outputs)
+            if (comp.type === 'INPUT' || comp.type === 'OUTPUT' || comp.type === 'CLOCK') {
+                const indicator = document.createElement('div');
+                indicator.className = 'w-3 h-3 rounded-full mt-1 shadow-inner transition-colors duration-200';
+                indicator.style.backgroundColor = comp.state.value ? '#4ade80' : '#333';
+                indicator.id = `ind-${comp.id}`;
+                if (comp.type === 'INPUT') {
+                    indicator.style.cursor = 'pointer';
+                    indicator.onclick = () => {
+                        comp.state.value = !comp.state.value;
+                        this.app.engine.propagate();
+                        this.app.simulation.recordState();
+                    };
+                }
+                div.appendChild(indicator);
+            }
+        });
+
+        // Drag Logic
+        div.onmousedown = (e) => {
+            if (e.target.classList.contains('port')) return;
+            e.stopPropagation();
+            let startX = e.clientX;
+            let startY = e.clientY;
+            let origX = comp.x;
+            let origY = comp.y;
+            
+            const move = (em) => {
+                comp.x = origX + (em.clientX - startX);
+                comp.y = origY + (em.clientY - startY);
+                div.style.left = comp.x + 'px';
+                div.style.top = comp.y + 'px';
+                this.app.ui.draw();
+            };
+            
+            const up = () => {
+                window.removeEventListener('mousemove', move);
+                window.removeEventListener('mouseup', up);
+            };
+            
+            window.addEventListener('mousemove', move);
+            window.addEventListener('mouseup', up);
+        };
+
+        // Delete on double click
+        div.ondblclick = () => {
+             this.app.removeComponent(comp.id);
+        };
+
+        this.app.compLayer.appendChild(div);
+    }
+
+    updateComponentVisuals() {
+        // Update port colors
+        this.app.components.forEach(comp => {
+            // Input ports state
+            comp.def.inputs.forEach(p => {
+                const el = document.getElementById(`port-${comp.id}-${p}-in`);
+                if(el) {
+                    el.className = `port input ${comp.inputs[p] ? 'on' : 'off'}`;
+                }
+            });
+            // Output ports state
+            comp.def.outputs.forEach(p => {
+                const el = document.getElementById(`port-${comp.id}-${p}-out`);
+                if(el) {
+                    el.className = `port output ${comp.outputs[p] ? 'on' : 'off'}`;
+                }
+            });
+            // Internal indicators (LEDs/Switches)
+            const ind = document.getElementById(`ind-${comp.id}`);
+            if (ind) {
+                ind.style.backgroundColor = comp.state.value ? '#4ade80' : '#333';
+                ind.style.boxShadow = comp.state.value ? '0 0 8px #4ade80' : 'none';
+            }
+        });
+    }
+
+    startWire(compId, port, isInput) {
+        this.app.wireStart = { compId, port, isInput };
+    }
+
+    endWire(compId, port, isInput) {
+        if (!this.app.wireStart) return;
+        const start = this.app.wireStart;
+        
+        // Determine source and target
+        let source, target;
+        if (start.isInput && !isInput) { source = start; target = {compId, port}; }
+        else if (!start.isInput && isInput) { source = start; target = {compId, port}; }
+        else {
+            this.app.wireStart = null; // Invalid connection
+            return;
+        }
+
+        this.app.addWire(source.compId, source.port, target.compId, target.port);
+        this.app.wireStart = null;
+    }
+
+    updateCustomComponentsList() {
+        const list = document.getElementById('custom-components-list');
+        list.innerHTML = '';
+        Object.keys(this.app.customModules).forEach(key => {
+            const div = document.createElement('div');
+            div.className = "bg-[#333] p-2 text-center rounded text-xs hover:bg-[#444] cursor-grab border border-[#444] text-blue-300";
+            div.textContent = key;
+            div.draggable = true;
+            div.ondragstart = (e) => this.app.dragStart(e, key);
+            list.appendChild(div);
+        });
+    }
+
+    // --- Timing Diagram ---
+    drawTiming() {
+        const cvs = document.getElementById('timing-canvas');
+        const ctx = cvs.getContext('2d');
+        const parent = cvs.parentElement;
+        cvs.width = parent.clientWidth;
+        cvs.height = parent.clientHeight;
+
+        const history = this.app.simulation.history;
+        if (history.length === 0) return;
+
+        // Determine signals to draw
+        // Get signals from last frame to define order
+        const signals = Object.keys(history[history.length - 1].signals);
+        const rowHeight = 30;
+        const startY = 20;
+        const colWidth = cvs.width / (this.app.simulation.maxHistory - 1);
+
+        ctx.clearRect(0, 0, cvs.width, cvs.height);
+        ctx.font = '10px monospace';
+        ctx.fillStyle = '#aaa';
+
+        signals.forEach((sig, i) => {
+            const y = startY + i * rowHeight;
+            ctx.fillText(sig, 5, y + 5);
+
+            ctx.beginPath();
+            ctx.strokeStyle = '#4ade80';
+            ctx.lineWidth = 2;
+
+            for (let t = 0; t < history.length; t++) {
+                const val = history[t].signals[sig];
+                const x = t * colWidth;
+                
+                // Draw High state or Low state
+                if (val === 1) {
+                    ctx.lineTo(x, y);
+                } else {
+                    ctx.lineTo(x, y + 10);
+                }
+            }
+            ctx.stroke();
+            
+            // Vertical line at current time
+            ctx.beginPath();
+            ctx.strokeStyle = '#555';
+            ctx.lineWidth = 1;
+            ctx.moveTo((history.length-1)*colWidth, startY);
+            ctx.lineTo((history.length-1)*colWidth, cvs.height);
+            ctx.stroke();
+        });
+    }
+
+    updateRtl() {
+        const container = document.getElementById('rtl-tree');
+        let html = '<div class="text-gray-500">module top();</div>';
+        
+        // Group wires by input component
+        this.app.wires.forEach(w => {
+            const fromComp = this.app.components.find(c => c.id === w.from.compId);
+            const toComp = this.app.components.find(c => c.id === w.to.compId);
+            const sigName = `sig_${w.from.port}_${w.id.substr(0,3)}`;
+            
+            html += `<div class="pl-4">
+                <span class="text-purple-400">wire</span> ${sigName};
+                <div class="pl-4">
+                    ${fromComp.def.name}.<span class="text-blue-400">${w.from.port}</span> &rarr; ${sigName};
+                </div>
+                <div class="pl-4">
+                    ${toComp.def.name}.<span class="text-blue-400">${w.to.port}</span> &larr; ${sigName};
+                </div>
+            </div>`;
+        });
+
+        // Unconnected inputs (defaults)
+        this.app.components.forEach(c => {
+            c.def.inputs.forEach(p => {
+                const connected = this.app.wires.some(w => w.to.compId === c.id && w.to.port === p);
+                if(!connected) {
+                    html += `<div class="pl-4 text-gray-600">! ${c.def.name}.${p} is floating (0)</div>`;
+                }
+            });
+        });
+
+        html += '<div class="text-gray-500">endmodule</div>';
+        container.innerHTML = html;
+    }
+}
+
+// --- Initialization ---
+const app = new App();
+
+</script>
+</body>
+</html>
