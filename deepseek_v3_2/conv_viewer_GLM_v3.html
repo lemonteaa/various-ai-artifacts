@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Conversation Viewer</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Highlight.js for syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+    
+    <!-- Marked for Markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    <!-- Lucide icons for UI elements -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    
+    <style>
+        .message-user {
+            border-left: 4px solid #3b82f6;
+        }
+        
+        .message-assistant {
+            border-left: 4px solid #10b981;
+        }
+        
+        .tree-node {
+            transition: all 0.2s ease;
+        }
+        
+        .tree-node:hover {
+            background-color: rgba(59, 130, 246, 0.1);
+        }
+        
+        .tree-node-selected {
+            background-color: rgba(59, 130, 246, 0.2);
+            font-weight: 600;
+        }
+        
+        .branch-selector {
+            transition: all 0.3s ease;
+        }
+        
+        .branch-selector:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        
+        .copy-btn {
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+        
+        pre:hover .copy-btn {
+            opacity: 1;
+        }
+        
+        .token-badge {
+            font-size: 0.7rem;
+            padding: 0.1rem 0.4rem;
+        }
+        
+        .message-content h1, .message-content h2, .message-content h3 {
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+        
+        .message-content p {
+            margin-bottom: 0.75rem;
+        }
+        
+        .message-content pre {
+            margin: 0.75rem 0;
+        }
+        
+        .message-content code {
+            background-color: rgba(0, 0, 0, 0.05);
+            padding: 0.125rem 0.25rem;
+            border-radius: 0.25rem;
+            font-size: 0.875em;
+        }
+        
+        .message-content ul, .message-content ol {
+            margin-left: 1.5rem;
+            margin-bottom: 0.75rem;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+    <div class="container mx-auto px-4 py-8">
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-gray-900 mb-2">LLM Conversation Viewer</h1>
+            <p class="text-gray-600">Upload a conversation JSON file to visualize and navigate the conversation tree</p>
+        </header>
+        
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <!-- Left sidebar: File upload and tree view -->
+            <div class="lg:col-span-1 space-y-6">
+                <!-- File upload section -->
+                <div class="bg-white rounded-xl shadow-md p-5">
+                    <h2 class="text-lg font-semibold mb-4 flex items-center">
+                        <i data-lucide="upload" class="w-5 h-5 mr-2"></i>
+                        Upload Conversation
+                    </h2>
+                    
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Select JSON file</label>
+                        <div class="flex items-center justify-center w-full">
+                            <label for="file-upload" class="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors">
+                                <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                                    <i data-lucide="file-json" class="w-10 h-10 mb-3 text-gray-400"></i>
+                                    <p class="mb-2 text-sm text-gray-500">
+                                        <span class="font-semibold">Click to upload</span>
+                                    </p>
+                                    <p class="text-xs text-gray-500">JSON conversation file</p>
+                                </div>
+                                <input id="file-upload" type="file" class="hidden" accept=".json,application/json" />
+                            </label>
+                        </div>
+                        
+                        <div class="mt-4">
+                            <p class="text-sm text-gray-500 mb-2">Or try with a sample conversation:</p>
+                            <button id="load-sample" class="w-full py-2 px-4 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors font-medium">
+                                Load Sample Conversation
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div id="file-info" class="hidden p-3 bg-green-50 text-green-800 rounded-lg">
+                        <div class="flex items-center">
+                            <i data-lucide="check-circle" class="w-5 h-5 mr-2"></i>
+                            <span id="file-name" class="font-medium"></span>
+                        </div>
+                        <div id="message-count" class="text-sm mt-1"></div>
+                    </div>
+                </div>
+                
+                <!-- Conversation tree -->
+                <div class="bg-white rounded-xl shadow-md p-5">
+                    <h2 class="text-lg font-semibold mb-4 flex items-center">
+                        <i data-lucide="git-branch" class="w-5 h-5 mr-2"></i>
+                        Conversation Tree
+                    </h2>
+                    
+                    <div id="tree-container" class="overflow-y-auto max-h-96">
+                        <p class="text-gray-500 text-sm text-center py-8" id="tree-placeholder">
+                            Upload a JSON file to view the conversation tree
+                        </p>
+                        <div id="tree-content" class="hidden space-y-1"></div>
+                    </div>
+                    
+                    <div id="tree-stats" class="hidden mt-4 pt-4 border-t border-gray-200 text-sm text-gray-600">
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <span class="font-medium">Total Messages:</span>
+                                <span id="total-messages" class="ml-1">0</span>
+                            </div>
+                            <div>
+                                <span class="font-medium">Branches:</span>
+                                <span id="branch-count" class="ml-1">0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Main content: Messages and details -->
+            <div class="lg:col-span-3">
+                <!-- Current branch selector -->
+                <div id="branch-selector-container" class="hidden mb-6">
+                    <h2 class="text-lg font-semibold mb-3 flex items-center">
+                        <i data-lucide="map-pin" class="w-5 h-5 mr-2"></i>
+                        Current Branch
+                    </h2>
+                    <div id="branch-path" class="flex flex-wrap gap-2 mb-4"></div>
+                </div>
+                
+                <!-- Branch switch UI -->
+                <div id="branch-switch-container" class="hidden mb-6">
+                    <div class="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                        <div class="flex items-center mb-3">
+                            <i data-lucide="git-merge" class="w-5 h-5 mr-2 text-blue-600"></i>
+                            <h3 class="font-semibold text-blue-800">Branch Point Detected</h3>
+                        </div>
+                        <p class="text-blue-700 text-sm mb-3">This message has multiple conversation branches. Select a branch to continue:</p>
+                        <div id="branch-options" class="flex flex-wrap gap-2"></div>
+                    </div>
+                </div>
+                
+                <!-- Messages container -->
+                <div class="bg-white rounded-xl shadow-md p-5">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-lg font-semibold flex items-center">
+                            <i data-lucide="messages-square" class="w-5 h-5 mr-2"></i>
+                            Conversation Messages
+                        </h2>
+                        <div class="flex space-x-2">
+                            <button id="jump-recent" class="hidden text-sm py-1 px-3 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors">
+                                Jump to Most Recent
+                            </button>
+                            <button id="expand-all" class="hidden text-sm py-1 px-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">
+                                Expand All Details
+                            </button>
+                            <button id="collapse-all" class="hidden text-sm py-1 px-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">
+                                Collapse All Details
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div id="messages-container">
+                        <div class="text-center py-12 text-gray-500" id="messages-placeholder">
+                            <i data-lucide="message-square" class="w-12 h-12 mx-auto mb-4 text-gray-300"></i>
+                            <p>No conversation loaded</p>
+                            <p class="text-sm mt-1">Upload a JSON file to view messages</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <footer class="mt-10 pt-6 border-t border-gray-200 text-center text-gray-500 text-sm">
+            <p>LLM Conversation Viewer • Upload and view conversation trees locally in your browser</p>
+        </footer>
+    </div>
+
+    <!-- Jump to top button -->
+    <button id="jump-top" class="fixed bottom-6 right-6 hidden w-12 h-12 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 transition-colors flex items-center justify-center z-10">
+        <i data-lucide="arrow-up" class="w-6 h-6"></i>
+    </button>
+
+    <!-- Sample conversation data -->
+    <script id="sample-conversation" type="application/json">
+        {
+            "chat": {
+                "history": {
+                    "messages": {
+                        "msg_001": {
+                            "id": "msg_001",
+                            "parentId": null,
+                            "childrenIds": ["msg_002"],
+                            "role": "user",
+                            "content": "I need help with a Python function that calculates factorial. Can you show me both recursive and iterative approaches?",
+                            "usage": {
+                                "prompt_tokens": 25,
+                                "completion_tokens": 0,
+                                "total_tokens": 25
+                            }
+                        },
+                        "msg_002": {
+                            "id": "msg_002",
+                            "parentId": "msg_001",
+                            "childrenIds": ["msg_003", "msg_004"],
+                            "role": "assistant",
+                            "content": "<details reasoning='true'><summary>Reasoning</summary>> I need to provide both recursive and iterative solutions for factorial calculation.\n> First, I'll explain the mathematical definition: n! = n × (n-1) × ... × 1, with 0! = 1.\n> For the recursive approach, I'll use base case of n <= 1 returning 1.\n> For the iterative approach, I'll use a loop from 1 to n.\n> I should include error handling for negative numbers.</details>\n\nHere are two Python implementations for calculating factorial:\n\n## Recursive Approach\n\n```python\ndef factorial_recursive(n):\n    \"\"\"Calculate factorial using recursion.\"\"\"\n    if n < 0:\n        raise ValueError(\"Factorial is not defined for negative numbers\")\n    if n <= 1:\n        return 1\n    return n * factorial_recursive(n - 1)\n```\n\n## Iterative Approach\n\n```python\ndef factorial_iterative(n):\n    \"\"\"Calculate factorial using iteration.\"\"\"\n    if n < 0:\n        raise ValueError(\"Factorial is not defined for negative numbers\")\n    result = 1\n    for i in range(2, n + 1):\n        result *= i\n    return result\n```\n\n## Example Usage\n\n```python\n# Test both functions\nprint(factorial_recursive(5))  # Output: 120\nprint(factorial_iterative(5))  # Output: 120\n```\n\nBoth approaches have time complexity O(n). The recursive approach uses O(n) stack space, while the iterative approach uses O(1) additional space.",
+                            "usage": {
+                                "prompt_tokens": 30,
+                                "completion_tokens": 320,
+                                "total_tokens": 350,
+                                "prompt_tokens_details": { "cached_tokens": 0 }
+                            }
+                        },
+                        "msg_003": {
+                            "id": "msg_003",
+                            "parentId": "msg_002",
+                            "childrenIds": ["msg_005"],
+                            "role": "user",
+                            "content": "Thanks! Now I need a memoized version to optimize repeated calculations.",
+                            "usage": {
+                                "prompt_tokens": 15,
+                                "completion_tokens": 0,
+                                "total_tokens": 15
+                            }
+                        },
+                        "msg_004": {
+                            "id": "msg_004",
+                            "parentId": "msg_002",
+                            "childrenIds": [],
+                            "role": "user",
+                            "content": "Can you show me how to calculate factorial for large numbers using the math module?",
+                            "usage": {
+                                "prompt_tokens": 20,
+                                "completion_tokens": 0,
+                                "total_tokens": 20
+                            }
+                        },
+                        "msg_005": {
+                            "id": "msg_005",
+                            "parentId": "msg_003",
+                            "childrenIds": [],
+                            "role": "assistant",
+                            "content": "<details reasoning='true'><summary>Reasoning</summary>> The user wants a memoized version to optimize repeated calculations.\n> I can implement memoization using a dictionary to store previously computed results.\n> This will reduce time complexity for repeated calls from O(n) to O(1) after the first calculation.\n> I should handle thread-safety if this might be used in a multi-threaded environment.\n> I'll also show a decorator-based approach which is more Pythonic.</details>\n\nHere's a memoized version of the factorial function:\n\n## Memoized Factorial Implementation\n\n```python\nfrom functools import lru_cache\n\n# Using Python's built-in LRU cache decorator\n@lru_cache(maxsize=None)\ndef factorial_memoized(n):\n    \"\"\"Calculate factorial with memoization using LRU cache.\"\"\"\n    if n < 0:\n        raise ValueError(\"Factorial is not defined for negative numbers\")\n    if n <= 1:\n        return 1\n    return n * factorial_memoized(n - 1)\n\n# Manual memoization implementation\nclass FactorialCalculator:\n    def __init__(self):\n        self.cache = {0: 1, 1: 1}\n    \n    def calculate(self, n):\n        if n < 0:\n            raise ValueError(\"Factorial is not defined for negative numbers\")\n        \n        if n in self.cache:\n            return self.cache[n]\n        \n        result = n * self.calculate(n - 1)\n        self.cache[n] = result\n        return result\n```\n\n## Performance Comparison\n\n```python\nimport time\n\ncalculator = FactorialCalculator()\n\n# First call (computes and caches)\nstart = time.time()\nresult1 = calculator.calculate(100)\ntime1 = time.time() - start\n\n# Second call (uses cache)\nstart = time.time()\nresult2 = calculator.calculate(100)\ntime2 = time.time() - start\n\nprint(f\"First call: {time1:.6f} seconds\")\nprint(f\"Second call: {time2:.6f} seconds\")\nprint(f\"Speedup: {time1/time2:.1f}x\")\n```\n\nMemoization is particularly useful when you need to compute factorials for the same values multiple times.",
+                            "usage": {
+                                "prompt_tokens": 35,
+                                "completion_tokens": 380,
+                                "total_tokens": 415,
+                                "prompt_tokens_details": { "cached_tokens": 10 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <script>
+        // Global variables
+        let conversationData = null;
+        let messagesMap = new Map();
+        let treeRoots = [];
+        let currentBranch = [];
+        let selectedNodeId = null;
+        
+        // Initialize Lucide icons
+        lucide.createIcons();
+        
+        // DOM elements
+        const fileUpload = document.getElementById('file-upload');
+        const loadSampleBtn = document.getElementById('load-sample');
+        const fileInfo = document.getElementById('file-info');
+        const fileName = document.getElementById('file-name');
+        const messageCount = document.getElementById('message-count');
+        const treeContainer = document.getElementById('tree-container');
+        const treeContent = document.getElementById('tree-content');
+        const treePlaceholder = document.getElementById('tree-placeholder');
+        const treeStats = document.getElementById('tree-stats');
+        const totalMessagesEl = document.getElementById('total-messages');
+        const branchCountEl = document.getElementById('branch-count');
+        const branchSelectorContainer = document.getElementById('branch-selector-container');
+        const branchPath = document.getElementById('branch-path');
+        const branchSwitchContainer = document.getElementById('branch-switch-container');
+        const branchOptions = document.getElementById('branch-options');
+        const messagesContainer = document.getElementById('messages-container');
+        const messagesPlaceholder = document.getElementById('messages-placeholder');
+        const expandAllBtn = document.getElementById('expand-all');
+        const collapseAllBtn = document.getElementById('collapse-all');
+        const jumpRecentBtn = document.getElementById('jump-recent');
+        const jumpTopBtn = document.getElementById('jump-top');
+        
+        // Event Listeners
+        fileUpload.addEventListener('change', handleFileUpload);
+        loadSampleBtn.addEventListener('click', loadSampleConversation);
+        expandAllBtn.addEventListener('click', () => toggleAllDetails(true));
+        collapseAllBtn.addEventListener('click', () => toggleAllDetails(false));
+        jumpRecentBtn.addEventListener('click', jumpToMostRecent);
+        jumpTopBtn.addEventListener('click', jumpToTop);
+        
+        // Show/hide jump to top button based on scroll
+        window.addEventListener('scroll', toggleJumpTopButton);
+        
+        // Handle file upload
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    loadConversation(data, file.name);
+                } catch (error) {
+                    alert('Error parsing JSON file: ' + error.message);
+                }
+            };
+            reader.readAsText(file);
+        }
+        
+        // Load sample conversation
+        function loadSampleConversation() {
+            const sampleData = JSON.parse(document.getElementById('sample-conversation').textContent);
+            loadConversation(sampleData, 'sample_conversation.json');
+        }
+        
+        // Main function to load conversation data
+        function loadConversation(data, filename) {
+            try {
+                // Extract messages from the expected path
+                const messages = data?.chat?.history?.messages;
+                if (!messages) {
+                    throw new Error('Invalid conversation format: Could not find chat.history.messages');
+                }
+                
+                conversationData = messages;
+                messagesMap.clear();
+                treeRoots = [];
+                currentBranch = [];
+                selectedNodeId = null;
+                
+                // Build map of messages
+                Object.values(messages).forEach(msg => {
+                    messagesMap.set(msg.id, msg);
+                });
+                
+                // Build tree structure
+                buildTree();
+                
+                // Update UI
+                fileName.textContent = filename;
+                messageCount.textContent = `${Object.keys(messages).length} messages loaded`;
+                fileInfo.classList.remove('hidden');
+                
+                totalMessagesEl.textContent = Object.keys(messages).length;
+                
+                // Calculate branch count (nodes with more than one child)
+                let branchCount = 0;
+                messagesMap.forEach(msg => {
+                    if (msg.childrenIds && msg.childrenIds.length > 1) {
+                        branchCount++;
+                    }
+                });
+                branchCountEl.textContent = branchCount;
+                treeStats.classList.remove('hidden');
+                
+                // Show tree and messages UI
+                treePlaceholder.classList.add('hidden');
+                treeContent.classList.remove('hidden');
+                messagesPlaceholder.classList.add('hidden');
+                expandAllBtn.classList.remove('hidden');
+                collapseAllBtn.classList.remove('hidden');
+                jumpRecentBtn.classList.remove('hidden');
+                jumpTopBtn.classList.remove('hidden');
+                
+                // Render the tree and select the first root
+                renderTree();
+                if (treeRoots.length > 0) {
+                    selectTreeNode(treeRoots[0].id);
+                }
+                
+                // Reinitialize icons
+                lucide.createIcons();
+                
+            } catch (error) {
+                alert('Error loading conversation: ' + error.message);
+            }
+        }
+        
+        // Build tree structure from messages
+        function buildTree() {
+            // Reset parent and child references
+            messagesMap.forEach(msg => {
+                msg.parent = null;
+                msg.children = [];
+            });
+            
+            // Build parent-child relationships
+            messagesMap.forEach(msg => {
+                if (msg.parentId && messagesMap.has(msg.parentId)) {
+                    const parent = messagesMap.get(msg.parentId);
+                    msg.parent = parent;
+                    //parent.children.push(msg);
+                }
+                
+                // Build children array from childrenIds
+                if (msg.childrenIds) {
+                    msg.children = msg.childrenIds
+                        .map(id => messagesMap.get(id))
+                        .filter(child => child !== undefined);
+                }
+            });
+            
+            // Find roots (messages with no parent or parentId null)
+            treeRoots = Array.from(messagesMap.values()).filter(msg => 
+                !msg.parentId || msg.parentId === null || !messagesMap.has(msg.parentId)
+            );
+            
+            // Sort children by ID to maintain consistent order
+            messagesMap.forEach(msg => {
+                msg.children.sort((a, b) => a.id.localeCompare(b.id));
+            });
+        }
+        
+        // Render conversation tree
+        function renderTree() {
+            treeContent.innerHTML = '';
+            
+            // Function to render a node recursively
+            const renderNode = (node, level = 0) => {
+                const isSelected = selectedNodeId === node.id;
+                const hasChildren = node.children && node.children.length > 0;
+                const isBranch = hasChildren && node.children.length > 1;
+                
+                const nodeElement = document.createElement('div');
+                nodeElement.className = `tree-node flex items-center py-1 px-2 rounded-lg cursor-pointer ${isSelected ? 'tree-node-selected' : ''}`;
+                nodeElement.style.paddingLeft = `${level * 1.5 + 0.5}rem`;
+                nodeElement.dataset.id = node.id;
+                
+                // Icon based on role and branch status
+                let iconName = node.role === 'user' ? 'user' : 'bot';
+                if (isBranch) iconName = 'git-branch';
+                
+                nodeElement.innerHTML = `
+                    <i data-lucide="${iconName}" class="w-4 h-4 mr-2 ${node.role === 'user' ? 'text-blue-500' : 'text-green-500'}"></i>
+                    <span class="truncate text-sm">${getMessagePreview(node.content)}</span>
+                    ${isBranch ? `<span class="ml-auto text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded-full">${node.children.length}</span>` : ''}
+                `;
+                
+                nodeElement.addEventListener('click', () => selectTreeNode(node.id));
+                
+                treeContent.appendChild(nodeElement);
+                
+                // Render children if node is selected or expanded
+                //if (isSelected || level === 0) {
+                    node.children.forEach(child => {
+                        renderNode(child, level + 1);
+                    });
+                //}
+            };
+            
+            // Render all roots
+            treeRoots.forEach(root => {
+                renderNode(root);
+            });
+            
+            // Update icons
+            lucide.createIcons();
+        }
+        
+        // Select a tree node and display its branch
+        function selectTreeNode(nodeId) {
+            selectedNodeId = nodeId;
+            
+            // Re-render tree to show selected state
+            renderTree();
+            
+            // Build the current branch (path from root to selected node)
+            buildCurrentBranch(nodeId);
+            
+            // Render branch path
+            renderBranchPath();
+            
+            // Render messages in the current branch
+            renderMessages();
+            
+            // Check if we need to show branch switching UI
+            showBranchSwitchIfNeeded();
+        }
+        
+        // Build current branch (path from root to selected node)
+        function buildCurrentBranch(nodeId) {
+            currentBranch = [];
+            let currentNode = messagesMap.get(nodeId);
+            
+            // Traverse up to root
+            while (currentNode) {
+                currentBranch.unshift(currentNode);
+                currentNode = currentNode.parent;
+            }
+        }
+        
+        // Render branch path breadcrumbs
+        function renderBranchPath() {
+            branchPath.innerHTML = '';
+            
+            if (currentBranch.length === 0) {
+                branchSelectorContainer.classList.add('hidden');
+                return;
+            }
+            
+            branchSelectorContainer.classList.remove('hidden');
+            
+            currentBranch.forEach((node, index) => {
+                const isLast = index === currentBranch.length - 1;
+                const pathElement = document.createElement('div');
+                pathElement.className = `flex items-center ${isLast ? 'font-semibold text-blue-700' : 'text-gray-600'}`;
+                
+                pathElement.innerHTML = `
+                    <i data-lucide="${node.role === 'user' ? 'user' : 'bot'}" class="w-4 h-4 mr-1 ${node.role === 'user' ? 'text-blue-500' : 'text-green-500'}"></i>
+                    <span class="text-sm">${getMessagePreview(node.content)}</span>
+                `;
+                
+                if (!isLast) {
+                    pathElement.addEventListener('click', () => selectTreeNode(node.id));
+                    pathElement.classList.add('cursor-pointer', 'hover:text-blue-600');
+                }
+                
+                branchPath.appendChild(pathElement);
+                
+                // Add separator if not last
+                if (!isLast) {
+                    const separator = document.createElement('div');
+                    separator.className = 'text-gray-400 mx-1';
+                    separator.innerHTML = '<i data-lucide="chevron-right" class="w-4 h-4"></i>';
+                    branchPath.appendChild(separator);
+                }
+            });
+            
+            lucide.createIcons();
+        }
+        
+        // Show branch switching UI if the selected node has multiple children
+        function showBranchSwitchIfNeeded() {
+            const selectedNode = messagesMap.get(selectedNodeId);
+            
+            if (selectedNode && selectedNode.children && selectedNode.children.length > 1) {
+                branchOptions.innerHTML = '';
+                
+                selectedNode.children.forEach((child, index) => {
+                    const branchBtn = document.createElement('button');
+                    branchBtn.className = 'branch-selector flex items-center py-2 px-4 bg-white border border-gray-300 rounded-lg hover:border-blue-400 hover:bg-blue-50';
+                    branchBtn.dataset.targetId = child.id;
+                    
+                    branchBtn.innerHTML = `
+                        <i data-lucide="${child.role === 'user' ? 'user' : 'bot'}" class="w-4 h-4 mr-2 ${child.role === 'user' ? 'text-blue-500' : 'text-green-500'}"></i>
+                        <div class="text-left">
+                            <div class="font-medium text-sm">Branch ${index + 1}</div>
+                            <div class="text-xs text-gray-500 truncate max-w-xs">${getMessagePreview(child.content)}</div>
+                        </div>
+                        <i data-lucide="chevron-right" class="w-4 h-4 ml-2 text-gray-400"></i>
+                    `;
+                    
+                    branchBtn.addEventListener('click', () => selectTreeNode(child.id));
+                    branchOptions.appendChild(branchBtn);
+                });
+                
+                branchSwitchContainer.classList.remove('hidden');
+            } else {
+                branchSwitchContainer.classList.add('hidden');
+            }
+        }
+        
+        // Render messages in the current branch
+        function renderMessages() {
+            messagesContainer.innerHTML = '';
+            
+            if (currentBranch.length === 0) {
+                messagesContainer.appendChild(messagesPlaceholder);
+                messagesPlaceholder.classList.remove('hidden');
+                return;
+            }
+            
+            currentBranch.forEach(node => {
+                const messageElement = createMessageElement(node);
+                messagesContainer.appendChild(messageElement);
+            });
+
+            updateMessageAnchors();
+            
+            // Initialize syntax highlighting
+            document.querySelectorAll('pre code').forEach(block => {
+                hljs.highlightElement(block);
+            });
+            
+            // Add copy functionality to code blocks
+            document.querySelectorAll('pre').forEach(preBlock => {
+                addCopyButton(preBlock);
+            });
+            
+            // Reinitialize icons
+            lucide.createIcons();
+        }
+        
+        // Create a message element
+        function createMessageElement(message) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `mb-6 p-4 rounded-lg ${message.role === 'user' ? 'message-user bg-blue-50' : 'message-assistant bg-green-50'}`;
+            messageDiv.dataset.id = message.id;
+            
+            // Message header with role and token usage
+            const tokenText = message.usage ? 
+                `Prompt: ${message.usage.prompt_tokens || 0} | Completion: ${message.usage.completion_tokens || 0} | Total: ${message.usage.total_tokens || 0}` : 
+                'No usage data';
+            
+            messageDiv.innerHTML = `
+                <a id="msg-${message.id}" class="anchor"></a>
+                <div class="flex justify-between items-center mb-3">
+                    <div class="flex items-center">
+                        <div class="flex items-center justify-center w-8 h-8 rounded-full ${message.role === 'user' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'} mr-2">
+                            <i data-lucide="${message.role === 'user' ? 'user' : 'bot'}" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <span class="font-semibold ${message.role === 'user' ? 'text-blue-700' : 'text-green-700'}">${message.role === 'user' ? 'User' : 'Assistant'}</span>
+                            <span class="text-xs text-gray-500 ml-2">${message.id}</span>
+                        </div>
+                    </div>
+                    <div class="text-xs text-gray-500 token-badge bg-white px-2 py-1 rounded border">${tokenText}</div>
+                </div>
+                <div class="message-content"></div>
+            `;
+            
+            // Process content - extract details tag and render markdown
+            const contentContainer = messageDiv.querySelector('.message-content');
+            processMessageContent(message.content,  message.role, contentContainer);
+            
+            return messageDiv;
+        }
+        
+        // Process message content: extract details tag and render markdown
+        function processMessageContent(content, role, container) {
+            // Check if content contains a details tag
+            const detailsMatch = content.match(/<details[^>]*>([\s\S]*?)<\/details>/);
+            
+            if (detailsMatch && role === 'assistant') {
+                const fullDetailsTag = detailsMatch[0];
+                const detailsContent = detailsMatch[1];
+                
+                // Extract summary if present
+                const summaryMatch = detailsContent.match(/<summary>([\s\S]*?)<\/summary>/);
+                const summaryText = summaryMatch ? summaryMatch[1] : 'Reasoning';
+                
+                // Get content inside details (excluding summary)
+                let innerContent = detailsContent;
+                if (summaryMatch) {
+                    innerContent = detailsContent.replace(summaryMatch[0], '');
+                }
+                
+                // Strip leading ">" from each line in the reasoning
+                const cleanedReasoning = innerContent.split('\n').map(line => {
+                    return line.startsWith('> ') ? line.substring(2) : line;
+                }).join('\n');
+                
+                // Create collapsible details section
+                const detailsElement = document.createElement('details');
+                detailsElement.className = 'mb-4 border border-gray-300 rounded-lg overflow-hidden';
+                detailsElement.innerHTML = `
+                    <summary class="bg-gray-100 hover:bg-gray-200 px-4 py-3 cursor-pointer flex items-center font-medium">
+                        <i data-lucide="chevron-right" class="w-4 h-4 mr-2 details-chevron transition-transform"></i>
+                        ${summaryText}
+                    </summary>
+                    <div class="p-4 bg-white reasoning-content"></div>
+                `;
+                
+                // Add toggle icon animation
+                detailsElement.addEventListener('toggle', function() {
+                    const chevron = this.querySelector('.details-chevron');
+                    if (this.open) {
+                        chevron.style.transform = 'rotate(90deg)';
+                    } else {
+                        chevron.style.transform = 'rotate(0deg)';
+                    }
+                });
+                
+                // Render reasoning content as markdown
+                const reasoningContainer = detailsElement.querySelector('.reasoning-content');
+                reasoningContainer.innerHTML = marked.parse(cleanedReasoning);
+                
+                container.appendChild(detailsElement);
+                
+                // Remove details tag from main content
+                content = content.replace(fullDetailsTag, '');
+            }
+            
+            // Render the remaining content
+            if (content.trim()) {
+                const mainContent = document.createElement('div');
+                mainContent.className = 'mt-3';
+
+                if (role === 'user') {
+                    // For user messages: create a pre element to preserve whitespace and formatting
+                    // Escape HTML entities to prevent XSS and render verbatim
+                    const preElement = document.createElement('pre');
+                    preElement.className = 'bg-gray-100 p-4 rounded-lg overflow-x-auto text-sm';
+                    preElement.style.whiteSpace = 'pre-wrap';
+                    preElement.textContent = content;
+                    mainContent.appendChild(preElement);
+                } else {
+                    mainContent.innerHTML = marked.parse(content);
+                }
+                container.appendChild(mainContent);
+            }
+        }
+        
+        // Add copy button to code blocks
+        function addCopyButton(preBlock) {
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'copy-btn absolute top-2 right-2 p-1.5 bg-gray-800 text-white rounded text-xs hover:bg-gray-900 transition-colors';
+            copyBtn.innerHTML = '<i data-lucide="copy" class="w-3.5 h-3.5"></i>';
+            copyBtn.title = 'Copy code';
+            
+            // Position relative for the pre block
+            preBlock.style.position = 'relative';
+            preBlock.appendChild(copyBtn);
+            
+            copyBtn.addEventListener('click', async () => {
+                const code = preBlock.querySelector('code').textContent;
+                try {
+                    await navigator.clipboard.writeText(code);
+                    copyBtn.innerHTML = '<i data-lucide="check" class="w-3.5 h-3.5"></i>';
+                    copyBtn.classList.add('bg-green-600');
+                    
+                    setTimeout(() => {
+                        copyBtn.innerHTML = '<i data-lucide="copy" class="w-3.5 h-3.5"></i>';
+                        copyBtn.classList.remove('bg-green-600');
+                    }, 2000);
+                } catch (err) {
+                    console.error('Failed to copy: ', err);
+                }
+            });
+        }
+        
+        // Helper function to get a short preview of message content
+        function getMessagePreview(content, maxLength = 40) {
+            // Remove details tag for preview
+            let preview = content.replace(/<details[^>]*>[\s\S]*?<\/details>/, '').trim();
+            
+            // Remove markdown formatting
+            preview = preview.replace(/[#*`[\]]/g, '');
+            
+            if (preview.length > maxLength) {
+                return preview.substring(0, maxLength) + '...';
+            }
+            return preview || '[Empty message]';
+        }
+
+        // Jump to the most recent message in current branch
+        function jumpToMostRecent() {
+            if (currentBranch.length === 0) return;
+            
+            const lastMessage = currentBranch[currentBranch.length - 1];
+            const anchorId = `msg-${lastMessage.id}`;
+            const anchorElement = document.getElementById(anchorId);
+            
+            if (anchorElement) {
+                anchorElement.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'start'
+                });
+                
+                // Add a temporary highlight effect
+                const messageDiv = anchorElement.closest('div[data-id]');
+                if (messageDiv) {
+                    messageDiv.classList.add('ring-2', 'ring-blue-400');
+                    setTimeout(() => {
+                        messageDiv.classList.remove('ring-2', 'ring-blue-400');
+                    }, 1500);
+                }
+            }
+        }
+        
+        // Jump to top of messages container
+        function jumpToTop() {
+            const messagesContainer = document.getElementById('messages-container');
+            if (messagesContainer) {
+                messagesContainer.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'start'
+                });
+            }
+        }
+        
+        // Toggle visibility of jump to top button based on scroll position
+        function toggleJumpTopButton() {
+            if (window.scrollY > 300) {
+                jumpTopBtn.classList.remove('hidden');
+            } else {
+                jumpTopBtn.classList.add('hidden');
+            }
+        }
+                
+        // Toggle all details sections
+        function toggleAllDetails(expand) {
+            const detailsElements = document.querySelectorAll('details');
+            detailsElements.forEach(details => {
+                details.open = expand;
+                
+                // Update chevron icon
+                const chevron = details.querySelector('.details-chevron');
+                if (chevron) {
+                    chevron.style.transform = expand ? 'rotate(90deg)' : 'rotate(0deg)';
+                }
+            });
+        }
+        
+        // Update anchor links for all messages
+        function updateMessageAnchors() {
+            const messages = document.querySelectorAll('#messages-container > div[data-id]');
+            messages.forEach((message, index) => {
+                const anchor = message.querySelector('.anchor');
+                if (!anchor) {
+                    const anchor = document.createElement('a');
+                    anchor.id = `msg-${message.dataset.id}`;
+                    anchor.className = 'anchor';
+                    message.insertBefore(anchor, message.firstChild);
+                }
+            });
+        }
+        
+        // Initialize with sample data on load
+        window.addEventListener('DOMContentLoaded', () => {
+            // Load sample conversation after a short delay
+            setTimeout(() => {
+                loadSampleConversation();
+            }, 500);
+            lucide.createIcons();
+        });
+    </script>
+</body>
+</html>
