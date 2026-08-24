@@ -27,3 +27,14 @@ Two sub-entry: 1) Pagoda (Voxel 3D modelling), 2) Age of empire clone minigame (
 - **React Admin based Conference Management System**
 
 A quick test of using coding agent (opportunistically). Result is from a single user prompt. This particular artifact is by Claude propietrary model.
+
+## Recently added (2026 Aug)
+
+`proof_of_concepts/*` - various more challenging projects where we simply ask AI to power through (aka leveraging AI's strength/comparative advantage)
+
+Summary:
+
+- **Tauri qemu app:** Motivation: qemu can be run on window without admin access and without kvm, but lacks a nice GUI. Tauri is Rust's more performant answer to electron app.
+- **Mujoco/VLA integration:** Mujoco finally has an open source version, and recently VLA for humanoid robotics/embodied intelligence is a hit topic, but the tooling/setups remain more "gated" compared to general LLM.
+- **Asterisk IVR Tutorial:** It's somewhat of a "legacy" tech, but actually making it works mean searching and reading through piles of legacy/niche documentations.
+
