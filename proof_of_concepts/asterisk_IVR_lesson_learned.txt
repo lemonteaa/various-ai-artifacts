@@ -1,0 +1,53 @@
+(Note: written by human)
+
+# (For the asterisk IVR tutorial) Lesson learned/changes necessary:
+
+## Installation
+
+1. Debian/ubuntu do daily unattended upgrade, which can take time (and it locks the package manager access right). It is triggered daily at a random time.
+2. asterisk is available in Ubuntu but not in Debian official due to lack of maintainer who can commit to LTS. it is available in the sid (unstable) though. Need to add the unstable deb to list, apt update, then `apt-get install asterisk/unstable`.
+
+## General
+
+The command line tool `asterisk` is only available for root user (? or the asterisk user?) (so need to prefix with sudo), but,
+for files, configs, etc, they generally need permissions to be set so that owner is `asterisk:asterisk`. Remember this need to be for file and the whole folder tree leading up to that file so be careful. This theme will repeatedly come up in all future steps.
+
+## The embedded HTTP mini-server
+
+Can be unforgiving as settings need to be precisely correct but there is a lack of in depth log file to see. (aka Fail silent)
+
+things encountered:
+
+- it's `enable_static`, not `enablestatic` - getting this wrong will fail the rest even if the rest are correct.
+- both `tlscertfile` and `tlsprivatekey` are necessary, AND both need to point towards the pem file. missing the private key field, OR have both but point to .crt and .key, will both lead to things failing silently.
+- A gotcha that we'll see twice: for debian, the folders for user level stuff are at /usr/share/... , NOT /var/lib/... (such as the static-http/ folder for this part).
+
+refer to /etc/asterisk/asterisk.conf for various directory location config.
+
+another thing: in qemu, hostfwd without local IP addr will trigger firewall escalation request, but not if we specify the local IP.
+
+extra info:
+- you also need `enable_status`
+- when using cli, pay attention to result of http show status -> there are separate line to say whether the http server AND the httpS servers are enabled.
+
+## The softphone webpage
+
+GLM's solution contained some errors:
+
+- SIP.js no longer provide a bundled/dist/min js file in CDN since after v0.16 - they are still available for download in github release page though.
+- There is a recent update to the main API of SIP.js and GLM got outdated. I feed the migration doc and the source code to deepseek v4 flash 0731, which fixed it quickly.
+- After that, it works but there is no sound - reason is becayse GLM's code does not contain `<audio>` html element nor attached it - again deepseek v4 flash 0731 quickly fixed.
+- minor quality of life: DTMF digit press are not shown on the emulated numpad - an UX choice (it does get sent to the backend eitherway)
+
+## Proper IVR programming intro
+
+The main trouble is the failure to read custom voice file. Turns out it's the same gotcha but a bit more severe - debian packaged asterisk read at /usr/share... and seem to ignore config file setting for this part?
+
+other info:
+several config flags in main asterisk.conf worth knowing:
+- languageprefix=yes for the new style
+- defaultlanguage=en
+
+(yes, it can do multi-lingual and IVR have ways to interactively set this)
+
+
